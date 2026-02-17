@@ -10,6 +10,8 @@ import { getNowInTimezone, isValidTimeHHmm } from '../utils/time';
 
 const CALLBACK = {
   JOIN: 'JOIN',
+  SEND_TODAY: 'SEND_TODAY',
+  SEND_TOMORROW: 'SEND_TOMORROW',
   SETTINGS_CHANGE_MORNING: 'SETTINGS_CHANGE_MORNING',
   SETTINGS_CHANGE_EVENING: 'SETTINGS_CHANGE_EVENING',
   SETTINGS_DISABLE: 'SETTINGS_DISABLE',
@@ -73,7 +75,11 @@ export class TelegramWebhookController {
     if (text === '/start') {
       await this.telegramApi.sendMessage(chatId, 'Добро пожаловать. Я буду присылать мягкие ориентиры на день утром и вечером.', {
         replyMarkup: {
-          inline_keyboard: [[{ text: 'Присоединиться', callback_data: CALLBACK.JOIN }]]
+          inline_keyboard: [
+            [{ text: 'Присоединиться', callback_data: CALLBACK.JOIN }],
+            [{ text: 'Сообщение на сегодня', callback_data: CALLBACK.SEND_TODAY }],
+            [{ text: 'Анонс на завтра', callback_data: CALLBACK.SEND_TOMORROW }]
+          ]
         }
       });
       return;
@@ -97,6 +103,8 @@ export class TelegramWebhookController {
         {
           replyMarkup: {
             inline_keyboard: [
+              [{ text: 'На сегодня', callback_data: CALLBACK.SEND_TODAY }],
+              [{ text: 'На завтра', callback_data: CALLBACK.SEND_TOMORROW }],
               [{ text: 'Изменить утро', callback_data: CALLBACK.SETTINGS_CHANGE_MORNING }],
               [{ text: 'Изменить вечер', callback_data: CALLBACK.SETTINGS_CHANGE_EVENING }],
               [{ text: 'Отключить', callback_data: CALLBACK.SETTINGS_DISABLE }],
@@ -174,6 +182,13 @@ export class TelegramWebhookController {
       return;
     }
 
+    if (data === CALLBACK.SEND_TODAY) {
+      await this.sendTodayMessage(chatId, user.timezone);
+    }
+    if (data === CALLBACK.SEND_TOMORROW) {
+      await this.sendTomorrowMessage(chatId, user.timezone);
+    }
+
     if (data === CALLBACK.SETTINGS_CHANGE_MORNING) {
       await this.userStateRepo.upsertState(userId, 'WAITING_UPDATE_MORNING_TIME');
       await this.telegramApi.sendMessage(chatId, 'Введи новое утреннее время в формате HH:mm.');
@@ -243,6 +258,7 @@ export class TelegramWebhookController {
         chatId,
         `Готово. Настройки сохранены:\nУтро: ${morning}\nВечер: ${text}\nТаймзона: ${env.defaultTimezone}`
       );
+      await this.sendTodayMessage(chatId, env.defaultTimezone);
       return;
     }
 
@@ -271,5 +287,27 @@ export class TelegramWebhookController {
       await this.telegramApi.sendMessage(chatId, `Вечернее время обновлено: ${text}`);
       return;
     }
+  }
+
+  private async sendTodayMessage(chatId: number, timezone: string): Promise<void> {
+    const timezoneName = timezone || env.defaultTimezone;
+    const targetDate = getNowInTimezone(timezoneName).toDate();
+    const messageText = await this.dailyMessageService.buildMessage({
+      date: targetDate,
+      timezone: timezoneName,
+      mode: 'TODAY'
+    });
+    await this.telegramApi.sendMessage(chatId, messageText);
+  }
+
+  private async sendTomorrowMessage(chatId: number, timezone: string): Promise<void> {
+    const timezoneName = timezone || env.defaultTimezone;
+    const targetDate = getNowInTimezone(timezoneName).add(1, 'day').toDate();
+    const messageText = await this.dailyMessageService.buildMessage({
+      date: targetDate,
+      timezone: timezoneName,
+      mode: 'TOMORROW'
+    });
+    await this.telegramApi.sendMessage(chatId, messageText);
   }
 }
