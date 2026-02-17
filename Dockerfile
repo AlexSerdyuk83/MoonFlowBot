@@ -16,6 +16,7 @@ RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit
 
 FROM node:20-bookworm-slim AS build
 WORKDIR /app
+COPY package*.json ./
 COPY --from=deps /app/node_modules ./node_modules
 COPY tsconfig.json .
 COPY src ./src
