@@ -43,6 +43,7 @@ function fieldOrNA(value: string | null): string {
 }
 
 function summaryBlock(dateLocal: string, panchangJson: {
+  heading: string;
   tithi: { name: string | null };
   nakshatra: { name: string | null };
   vara: string | null;
@@ -50,7 +51,7 @@ function summaryBlock(dateLocal: string, panchangJson: {
   sunset: string | null;
 }): string {
   return [
-    `🌅 Сегодня (${dateLocal})`,
+    `🌅 ${panchangJson.heading} (${dateLocal})`,
     `🗓️ Титхи: ${fieldOrNA(panchangJson.tithi.name)}`,
     `🌙 Накшатра: ${fieldOrNA(panchangJson.nakshatra.name)}`,
     `✨ Вара: ${fieldOrNA(panchangJson.vara)}`,
@@ -142,12 +143,17 @@ export class VedicHandlers {
     }
 
     if (text === '/today') {
-      await this.handleToday(chatId, userId, false);
+      await this.handleDay(chatId, userId, false, 0, 'today');
+      return true;
+    }
+
+    if (text === '/tomorrow') {
+      await this.handleDay(chatId, userId, false, 1, 'tomorrow');
       return true;
     }
 
     if (text === '/refresh') {
-      await this.handleToday(chatId, userId, true);
+      await this.handleDay(chatId, userId, true, 0, 'today');
       return true;
     }
 
@@ -226,13 +232,19 @@ export class VedicHandlers {
         await this.requestLocation(message.chat.id, userId, 'join_button', true);
         return true;
       }
-      await this.handleToday(message.chat.id, userId, false);
+      await this.handleDay(message.chat.id, userId, false, 0, 'today');
       return true;
     }
 
     if (text === BOT_BUTTON_TODAY || text === LEGACY_BUTTON_TODAY) {
       await this.telegramApi.sendMessage(message.chat.id, '🌼 Благодарю. Готовлю для тебя сводку на сегодня, это займет несколько секунд...');
-      await this.handleToday(message.chat.id, userId, false);
+      await this.handleDay(message.chat.id, userId, false, 0, 'today');
+      return true;
+    }
+
+    if (text === BOT_BUTTON_TOMORROW || text === LEGACY_BUTTON_TOMORROW) {
+      await this.telegramApi.sendMessage(message.chat.id, '🌙 Благодарю. Готовлю анонс на завтра, это займет несколько секунд...');
+      await this.handleDay(message.chat.id, userId, false, 1, 'tomorrow');
       return true;
     }
 
@@ -275,7 +287,7 @@ export class VedicHandlers {
       );
       if (autoSendToday) {
         await this.telegramApi.sendMessage(chatId, '🌼 Готовлю сводку на сегодня...');
-        await this.handleToday(chatId, userId, false);
+        await this.handleDay(chatId, userId, false, 0, 'today');
       }
       return true;
     }
@@ -288,6 +300,20 @@ export class VedicHandlers {
   }
 
   async handleToday(chatId: number, userId: number, forceRefresh: boolean): Promise<void> {
+    await this.handleDay(chatId, userId, forceRefresh, 0, 'today');
+  }
+
+  async handleTomorrow(chatId: number, userId: number, forceRefresh: boolean): Promise<void> {
+    await this.handleDay(chatId, userId, forceRefresh, 1, 'tomorrow');
+  }
+
+  private async handleDay(
+    chatId: number,
+    userId: number,
+    forceRefresh: boolean,
+    dayOffset: number,
+    target: 'today' | 'tomorrow'
+  ): Promise<void> {
     const location = await this.storage.getUserLocation(userId);
     if (!location || location.lat == null || location.lon == null) {
       await this.requestLocation(chatId, userId, 'setlocation');
@@ -295,13 +321,14 @@ export class VedicHandlers {
     }
 
     const timezoneName = location.timezone || env.defaultTimezone;
-    const nowLocal = getNowInTimezone(timezoneName);
-    const dateLocal = nowLocal.format('YYYY-MM-DD');
+    const baseLocal = getNowInTimezone(timezoneName);
+    const targetLocal = dayOffset === 0 ? baseLocal : baseLocal.add(dayOffset, 'day');
+    const dateLocal = targetLocal.format('YYYY-MM-DD');
 
     let panchangJson;
     try {
       panchangJson = await this.panchangService.computePanchang({
-        date: nowLocal.toDate(),
+        date: targetLocal.toDate(),
         timezone: timezoneName,
         lat: location.lat,
         lon: location.lon
@@ -341,9 +368,12 @@ export class VedicHandlers {
     }
 
     try {
-      const llmText = await this.llmService.generateVedicDay(panchangJson, theses);
-      const output = `${summaryBlock(dateLocal, panchangJson)}\n\n${sanitizeGeneratedText(llmText)}`;
-      await this.storage.setCache(cacheKey, output, this.storage.getEndOfLocalDayTs(timezoneName));
+      const llmText = await this.llmService.generateVedicDay(panchangJson, theses, target);
+      const heading = target === 'tomorrow' ? 'Завтра' : 'Сегодня';
+      const output = `${summaryBlock(dateLocal, { ...panchangJson, heading })}\n\n${sanitizeGeneratedText(llmText)}`;
+      const expiresAt = targetLocal.endOf('day').valueOf();
+      const fallbackExpiresAt = Date.now() + 24 * 60 * 60 * 1000;
+      await this.storage.setCache(cacheKey, output, expiresAt > Date.now() ? expiresAt : fallbackExpiresAt);
       await this.telegramApi.sendMessage(chatId, output);
     } catch (error) {
       if (error instanceof OpenRouterRateLimitError) {
@@ -362,7 +392,7 @@ export class VedicHandlers {
       const debugSuffix = isDebugUser ? `\n\nТех.детали: ${this.errorMessage(error)}` : '';
       await this.telegramApi.sendMessage(
         chatId,
-        `${summaryBlock(dateLocal, panchangJson)}\n\n⚠️ Интерпретация временно недоступна. Попробуй /refresh позже.${debugSuffix}`
+        `${summaryBlock(dateLocal, { ...panchangJson, heading: target === 'tomorrow' ? 'Завтра' : 'Сегодня' })}\n\n⚠️ Интерпретация временно недоступна. Попробуй /refresh позже.${debugSuffix}`
       );
     }
   }

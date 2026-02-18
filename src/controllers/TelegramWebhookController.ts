@@ -7,11 +7,7 @@ import type { OnboardingStep } from '../types/domain';
 import type { TelegramCallbackQuery, TelegramMessage, TelegramUpdate } from '../types/telegram';
 import { logger } from '../utils/logger';
 import { getNowInTimezone, isValidTimeHHmm } from '../utils/time';
-import {
-  BOT_BUTTON_TOMORROW,
-  LEGACY_BUTTON_TOMORROW,
-  VedicHandlers
-} from '../vedic/handlers';
+import { VedicHandlers } from '../vedic/handlers';
 
 const CALLBACK = {
   JOIN: 'JOIN',
@@ -75,12 +71,6 @@ export class TelegramWebhookController {
 
     const handledTextAction = await this.vedicHandlers.handleTextAction(message, text);
     if (handledTextAction) {
-      return;
-    }
-
-    if (text === BOT_BUTTON_TOMORROW || text === LEGACY_BUTTON_TOMORROW) {
-      await this.telegramApi.sendMessage(message.chat.id, '🌙 Благодарю. Готовлю анонс на завтра, пожалуйста, подожди немного...');
-      await this.handleCommand(message, '/tomorrow');
       return;
     }
 
@@ -198,15 +188,17 @@ export class TelegramWebhookController {
       return;
     }
 
+    if (data === CALLBACK.SEND_TOMORROW) {
+      await this.vedicHandlers.handleTomorrow(chatId, userId, false);
+      await this.telegramApi.answerCallbackQuery(callback.id);
+      return;
+    }
+
     const user = await this.userRepo.findByTelegramUserId(userId);
     if (!user) {
       await this.telegramApi.sendMessage(chatId, 'Профиль не найден. Начни с /start.');
       await this.telegramApi.answerCallbackQuery(callback.id);
       return;
-    }
-
-    if (data === CALLBACK.SEND_TOMORROW) {
-      await this.sendTomorrowMessage(chatId, user.timezone);
     }
 
     if (data === CALLBACK.SETTINGS_CHANGE_MORNING) {
