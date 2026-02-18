@@ -18,6 +18,7 @@ const CALLBACK = {
   SETTINGS_DISABLE: 'SETTINGS_DISABLE',
   SETTINGS_ENABLE: 'SETTINGS_ENABLE'
 } as const;
+const BUTTON_TOMORROW = 'Анонс на завтра';
 
 export class TelegramWebhookController {
   constructor(
@@ -70,6 +71,16 @@ export class TelegramWebhookController {
       return;
     }
 
+    const handledTextAction = await this.vedicHandlers.handleTextAction(message, text);
+    if (handledTextAction) {
+      return;
+    }
+
+    if (text === BUTTON_TOMORROW) {
+      await this.handleCommand(message, '/tomorrow');
+      return;
+    }
+
     const state = await this.userStateRepo.getByTelegramUserId(from.id);
     if (!state || state.step === 'IDLE') {
       return;
@@ -87,19 +98,6 @@ export class TelegramWebhookController {
 
     const handledByVedic = await this.vedicHandlers.handleCommand(message, text);
     if (handledByVedic) {
-      return;
-    }
-
-    if (text === '/start') {
-      await this.telegramApi.sendMessage(chatId, 'Добро пожаловать. Я буду присылать мягкие ориентиры на день утром и вечером.', {
-        replyMarkup: {
-          inline_keyboard: [
-            [{ text: 'Присоединиться', callback_data: CALLBACK.JOIN }],
-            [{ text: 'Сообщение на сегодня', callback_data: CALLBACK.SEND_TODAY }],
-            [{ text: 'Анонс на завтра', callback_data: CALLBACK.SEND_TOMORROW }]
-          ]
-        }
-      });
       return;
     }
 
@@ -186,8 +184,7 @@ export class TelegramWebhookController {
     }
 
     if (data === CALLBACK.JOIN) {
-      await this.userStateRepo.upsertState(userId, 'WAITING_MORNING_TIME');
-      await this.telegramApi.sendMessage(chatId, 'Введи время утреннего сообщения в формате HH:mm (например, 08:30).');
+      await this.vedicHandlers.requestLocation(chatId, userId, 'join_button');
       await this.telegramApi.answerCallbackQuery(callback.id);
       return;
     }

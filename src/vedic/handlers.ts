@@ -11,6 +11,9 @@ import { VedicStorage } from './storage';
 import { VedicThesesService } from './vedicTheses';
 
 const CANCEL_TEXT = 'Отмена';
+const BUTTON_JOIN = 'Присоединиться';
+const BUTTON_TODAY = 'Сообщение на сегодня';
+const BUTTON_TOMORROW = 'Анонс на завтра';
 
 function removeKeyboard() {
   return { remove_keyboard: true } as const;
@@ -23,6 +26,13 @@ function locationKeyboard() {
     one_time_keyboard: true
   };
   return keyboard;
+}
+
+function controlKeyboard(): ReplyKeyboardMarkup {
+  return {
+    keyboard: [[{ text: BUTTON_JOIN }, { text: BUTTON_TODAY }, { text: BUTTON_TOMORROW }]],
+    resize_keyboard: true
+  };
 }
 
 function fieldOrNA(value: string | null): string {
@@ -72,11 +82,13 @@ export class VedicHandlers {
       return true;
     }
 
+    if (text === '/start') {
+      await this.requestLocation(chatId, userId, 'start');
+      return true;
+    }
+
     if (text === '/setlocation') {
-      await this.userStateRepo.upsertState(userId, 'WAITING_LOCATION');
-      await this.telegramApi.sendMessage(chatId, 'Отправь геолокацию', {
-        replyMarkup: locationKeyboard()
-      });
+      await this.requestLocation(chatId, userId, 'setlocation');
       return true;
     }
 
@@ -149,6 +161,25 @@ export class VedicHandlers {
     return false;
   }
 
+  async handleTextAction(message: TelegramMessage, text: string): Promise<boolean> {
+    const userId = message.from?.id;
+    if (!userId) {
+      return false;
+    }
+
+    if (text === BUTTON_JOIN) {
+      await this.requestLocation(message.chat.id, userId, 'join_button');
+      return true;
+    }
+
+    if (text === BUTTON_TODAY) {
+      await this.handleToday(message.chat.id, userId, false);
+      return true;
+    }
+
+    return false;
+  }
+
   async handleLocationMessage(message: TelegramMessage): Promise<boolean> {
     const userId = message.from?.id;
     const location = message.location;
@@ -157,8 +188,10 @@ export class VedicHandlers {
     }
 
     const chatId = message.chat.id;
+    const state = await this.userStateRepo.getByTelegramUserId(userId);
     const existing = await this.storage.getUserLocation(userId);
-    const timezoneName = existing?.timezone || env.defaultTimezone;
+    const detectedTimezone = await this.detectTimezoneByCoordinates(location.latitude, location.longitude);
+    const timezoneName = detectedTimezone ?? existing?.timezone ?? env.defaultTimezone;
 
     await this.storage.saveLocation({
       userId,
@@ -169,16 +202,23 @@ export class VedicHandlers {
     });
 
     await this.userStateRepo.clearState(userId);
-    const tzHelp =
-      timezoneName === env.defaultTimezone
-        ? `\nТаймзона пока установлена как ${timezoneName}. Если она другая, задай: /settimezone Europe/Moscow`
-        : '';
+    const source = typeof state?.payload?.source === 'string' ? state.payload.source : '';
+    const detectedHint = detectedTimezone
+      ? ''
+      : `\nНе удалось точно определить таймзону по координатам, использую: ${timezoneName}. Можно изменить: /settimezone Europe/Moscow`;
 
-    await this.telegramApi.sendMessage(
-      chatId,
-      `Локация сохранена: ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}.\nТаймзона: ${timezoneName}.${tzHelp}`,
-      { replyMarkup: removeKeyboard() }
-    );
+    if (source === 'start' || source === 'join_button') {
+      await this.telegramApi.sendMessage(
+        chatId,
+        `Локация сохранена: ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}.\nТаймзона: ${timezoneName}.${detectedHint}\n\nПодключение завершено. Выбери действие кнопками ниже.`,
+        { replyMarkup: controlKeyboard() }
+      );
+      return true;
+    }
+
+    await this.telegramApi.sendMessage(chatId, `Локация сохранена: ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}.\nТаймзона: ${timezoneName}.${detectedHint}`, {
+      replyMarkup: controlKeyboard()
+    });
 
     return true;
   }
@@ -265,5 +305,40 @@ export class VedicHandlers {
       return error.message;
     }
     return String(error);
+  }
+
+  private async detectTimezoneByCoordinates(lat: number, lon: number): Promise<string | null> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+
+    try {
+      const response = await fetch(
+        `https://timeapi.io/api/TimeZone/coordinate?latitude=${lat}&longitude=${lon}`,
+        { signal: controller.signal }
+      );
+      if (!response.ok) {
+        return null;
+      }
+
+      const payload = (await response.json()) as { timeZone?: unknown };
+      if (typeof payload.timeZone === 'string' && payload.timeZone.trim()) {
+        return payload.timeZone.trim();
+      }
+
+      return null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async requestLocation(chatId: number, userId: number, source: 'start' | 'join_button' | 'setlocation'): Promise<void> {
+    await this.userStateRepo.upsertState(userId, 'WAITING_LOCATION', { source });
+    const text =
+      source === 'setlocation'
+        ? 'Отправь геолокацию'
+        : 'Привет. Сначала отправь геолокацию, чтобы я определил таймзону и рассчитывал ведический день корректно.';
+    await this.telegramApi.sendMessage(chatId, text, { replyMarkup: locationKeyboard() });
   }
 }
