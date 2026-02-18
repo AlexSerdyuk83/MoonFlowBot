@@ -3,6 +3,7 @@ import { UserStateRepo } from '../repos/UserStateRepo';
 import { TelegramApi } from '../services/TelegramApi';
 import type { TelegramMessage } from '../types/telegram';
 import type { ReplyKeyboardMarkup } from '../types/telegram';
+import { logger } from '../utils/logger';
 import { getNowInTimezone } from '../utils/time';
 import { LlmService, OpenRouterRateLimitError } from './llmService';
 import { VedicPanchangService } from './panchangService';
@@ -243,9 +244,18 @@ export class VedicHandlers {
         return;
       }
 
+      logger.error('OpenRouter generation failed', {
+        userId,
+        timezone: timezoneName,
+        dateLocal,
+        error: this.errorMessage(error)
+      });
+
+      const isDebugUser = env.nodeEnv !== 'production' || env.adminTelegramUserId === String(userId);
+      const debugSuffix = isDebugUser ? `\n\nТех.детали: ${this.errorMessage(error)}` : '';
       await this.telegramApi.sendMessage(
         chatId,
-        `${summaryBlock(dateLocal, panchangJson)}\n\nИнтерпретация временно недоступна. Попробуй /refresh позже.`
+        `${summaryBlock(dateLocal, panchangJson)}\n\nИнтерпретация временно недоступна. Попробуй /refresh позже.${debugSuffix}`
       );
     }
   }
