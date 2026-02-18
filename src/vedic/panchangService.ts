@@ -1,7 +1,7 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
-import { getPanchanga } from '@bidyashish/panchang';
+import { AstronomicalCalculator, getPanchanga } from '@bidyashish/panchang';
 import { isoDateInTimezone } from '../utils/time';
 import type { VedicPanchangJson } from './types';
 
@@ -37,6 +37,13 @@ function asLocalTime(value: unknown, tz: string): string | null {
   }
 
   return dayjs(dateValue).tz(tz).format('HH:mm');
+}
+
+function asLocalTimeFromDate(value: Date | null | undefined, tz: string): string | null {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+    return null;
+  }
+  return dayjs(value).tz(tz).format('HH:mm');
 }
 
 function extractClockString(value: unknown): string | null {
@@ -188,12 +195,15 @@ export class VedicPanchangService {
 
     const tithiNumber = asNumber(tithi.number);
     const paksha = getPakshaByTithiNumber(tithiNumber);
-    const normalizedSun = normalizeSunTimes(
-      (result as { sunrise?: unknown })?.sunrise,
-      (result as { sunset?: unknown })?.sunset,
+    const normalizedSun = await this.resolveSunTimes({
+      date: params.date,
+      lat: params.lat,
+      lon: params.lon,
+      timezone: params.timezone,
       dateLocal,
-      params.timezone
-    );
+      rawSunrise: (result as { sunrise?: unknown })?.sunrise,
+      rawSunset: (result as { sunset?: unknown })?.sunset
+    });
 
     return {
       dateLocal,
@@ -218,5 +228,46 @@ export class VedicPanchangService {
       karana: { name: asString(karana.name) },
       moonPhase: getMoonPhaseByTithiNumber(tithiNumber)
     };
+  }
+
+  private async resolveSunTimes(params: {
+    date: Date;
+    lat: number;
+    lon: number;
+    timezone: string;
+    dateLocal: string;
+    rawSunrise: unknown;
+    rawSunset: unknown;
+  }): Promise<{ sunrise: string | null; sunset: string | null }> {
+    let calculatorSunrise: string | null = null;
+    let calculatorSunset: string | null = null;
+    let calculator: AstronomicalCalculator | null = null;
+
+    try {
+      calculator = new AstronomicalCalculator();
+      const [sunriseDate, sunsetDate] = await Promise.all([
+        calculator.calculateSunrise(params.date, params.lat, params.lon, params.timezone),
+        calculator.calculateSunset(params.date, params.lat, params.lon, params.timezone)
+      ]);
+      calculatorSunrise = asLocalTimeFromDate(sunriseDate, params.timezone);
+      calculatorSunset = asLocalTimeFromDate(sunsetDate, params.timezone);
+    } catch {
+      calculatorSunrise = null;
+      calculatorSunset = null;
+    } finally {
+      const maybeCleanup = (calculator as unknown as { cleanup?: () => void } | null)?.cleanup;
+      if (typeof maybeCleanup === 'function') {
+        maybeCleanup.call(calculator);
+      }
+    }
+
+    if (calculatorSunrise && calculatorSunset) {
+      if (scoreSunPair(calculatorSunrise, calculatorSunset) >= scoreSunPair(calculatorSunset, calculatorSunrise)) {
+        return { sunrise: calculatorSunrise, sunset: calculatorSunset };
+      }
+      return { sunrise: calculatorSunset, sunset: calculatorSunrise };
+    }
+
+    return normalizeSunTimes(params.rawSunrise, params.rawSunset, params.dateLocal, params.timezone);
   }
 }
