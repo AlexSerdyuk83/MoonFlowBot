@@ -31,16 +31,121 @@ function asLocalTime(value: unknown, tz: string): string | null {
     return null;
   }
 
-  if (typeof value === 'string' && /^\d{1,2}:\d{2}/.test(value)) {
-    return value.slice(0, 5);
-  }
-
   const dateValue = value instanceof Date ? value : new Date(String(value));
   if (Number.isNaN(dateValue.getTime())) {
     return null;
   }
 
   return dayjs(dateValue).tz(tz).format('HH:mm');
+}
+
+function extractClockString(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) {
+    return null;
+  }
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    return null;
+  }
+
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function clockToLocalFromUtc(clock: string, dateLocal: string, tz: string): string | null {
+  const utcDate = new Date(`${dateLocal}T${clock}:00.000Z`);
+  if (Number.isNaN(utcDate.getTime())) {
+    return null;
+  }
+
+  return dayjs(utcDate).tz(tz).format('HH:mm');
+}
+
+function parseMinutes(time: string | null): number | null {
+  if (!time || !/^\d{2}:\d{2}$/.test(time)) {
+    return null;
+  }
+
+  const [hoursRaw, minutesRaw] = time.split(':');
+  const hours = Number(hoursRaw);
+  const minutes = Number(minutesRaw);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null;
+  }
+
+  return hours * 60 + minutes;
+}
+
+function scoreSunPair(sunrise: string | null, sunset: string | null): number {
+  const sunriseMin = parseMinutes(sunrise);
+  const sunsetMin = parseMinutes(sunset);
+  if (sunriseMin == null || sunsetMin == null) {
+    return -999;
+  }
+
+  const sunriseHour = Math.floor(sunriseMin / 60);
+  const sunsetHour = Math.floor(sunsetMin / 60);
+  let score = 0;
+
+  if (sunriseHour >= 2 && sunriseHour <= 11) {
+    score += 3;
+  }
+  if (sunsetHour >= 12 && sunsetHour <= 23) {
+    score += 3;
+  }
+
+  const dayLength = sunsetMin >= sunriseMin ? sunsetMin - sunriseMin : sunsetMin + 24 * 60 - sunriseMin;
+  if (dayLength >= 6 * 60 && dayLength <= 18 * 60) {
+    score += 3;
+  }
+  if (sunriseMin < sunsetMin) {
+    score += 1;
+  }
+
+  return score;
+}
+
+function normalizeSunTimes(
+  rawSunrise: unknown,
+  rawSunset: unknown,
+  dateLocal: string,
+  tz: string
+): { sunrise: string | null; sunset: string | null } {
+  const sunriseClock = extractClockString(rawSunrise);
+  const sunsetClock = extractClockString(rawSunset);
+
+  if (sunriseClock && sunsetClock) {
+    const direct = { sunrise: sunriseClock, sunset: sunsetClock };
+    const utcShifted = {
+      sunrise: clockToLocalFromUtc(sunriseClock, dateLocal, tz),
+      sunset: clockToLocalFromUtc(sunsetClock, dateLocal, tz)
+    };
+
+    const directScore = scoreSunPair(direct.sunrise, direct.sunset);
+    const utcScore = scoreSunPair(utcShifted.sunrise, utcShifted.sunset);
+
+    const selected = utcScore > directScore ? utcShifted : direct;
+    if (scoreSunPair(selected.sunrise, selected.sunset) >= scoreSunPair(selected.sunset, selected.sunrise)) {
+      return selected;
+    }
+
+    return { sunrise: selected.sunset, sunset: selected.sunrise };
+  }
+
+  const sunrise = asLocalTime(rawSunrise, tz);
+  const sunset = asLocalTime(rawSunset, tz);
+  if (scoreSunPair(sunrise, sunset) >= scoreSunPair(sunset, sunrise)) {
+    return { sunrise, sunset };
+  }
+
+  return { sunrise: sunset, sunset: sunrise };
 }
 
 function getPakshaByTithiNumber(number: number | null): string | null {
@@ -74,6 +179,7 @@ export class VedicPanchangService {
     lon: number;
   }): Promise<VedicPanchangJson> {
     const result = await getPanchanga(params.date, params.lat, params.lon, params.timezone);
+    const dateLocal = isoDateInTimezone(params.date, params.timezone);
     const tithi = (result?.tithi ?? {}) as RawFact;
     const nakshatra = (result?.nakshatra ?? {}) as RawFact;
     const yoga = (result?.yoga ?? {}) as RawFact;
@@ -82,12 +188,18 @@ export class VedicPanchangService {
 
     const tithiNumber = asNumber(tithi.number);
     const paksha = getPakshaByTithiNumber(tithiNumber);
+    const normalizedSun = normalizeSunTimes(
+      (result as { sunrise?: unknown })?.sunrise,
+      (result as { sunset?: unknown })?.sunset,
+      dateLocal,
+      params.timezone
+    );
 
     return {
-      dateLocal: isoDateInTimezone(params.date, params.timezone),
+      dateLocal,
       timezone: params.timezone,
-      sunrise: asLocalTime((result as { sunrise?: unknown })?.sunrise, params.timezone),
-      sunset: asLocalTime((result as { sunset?: unknown })?.sunset, params.timezone),
+      sunrise: normalizedSun.sunrise,
+      sunset: normalizedSun.sunset,
       vara: asString(vara.name),
       paksha,
       tithi: {
