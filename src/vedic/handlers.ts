@@ -47,12 +47,12 @@ function summaryBlock(dateLocal: string, panchangJson: {
   sunset: string | null;
 }): string {
   return [
-    `Сегодня (${dateLocal}):`,
-    `• Титхи: ${fieldOrNA(panchangJson.tithi.name)}`,
-    `• Накшатра: ${fieldOrNA(panchangJson.nakshatra.name)}`,
-    `• Вара: ${fieldOrNA(panchangJson.vara)}`,
-    `• Восход: ${fieldOrNA(panchangJson.sunrise)}`,
-    `• Закат: ${fieldOrNA(panchangJson.sunset)}`
+    `🌅 Сегодня (${dateLocal})`,
+    `🗓️ Титхи: ${fieldOrNA(panchangJson.tithi.name)}`,
+    `🌙 Накшатра: ${fieldOrNA(panchangJson.nakshatra.name)}`,
+    `✨ Вара: ${fieldOrNA(panchangJson.vara)}`,
+    `🌄 Восход: ${fieldOrNA(panchangJson.sunrise)}`,
+    `🌇 Закат: ${fieldOrNA(panchangJson.sunset)}`
   ].join('\n');
 }
 
