@@ -272,8 +272,10 @@ export class VedicPanchangService {
         return null;
       }
 
-      const sunrise = asLocalTime(sunriseRaw, params.timezone);
-      const sunset = asLocalTime(sunsetRaw, params.timezone);
+      // Open-Meteo returns daily.sunrise/sunset already in requested timezone.
+      // Take HH:mm directly to avoid applying timezone conversion twice.
+      const sunrise = extractClockString(sunriseRaw);
+      const sunset = extractClockString(sunsetRaw);
       if (!sunrise || !sunset) {
         return null;
       }
