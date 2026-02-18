@@ -11,9 +11,9 @@ import { VedicStorage } from './storage';
 import { VedicThesesService } from './vedicTheses';
 
 const CANCEL_TEXT = 'Отмена';
-export const BOT_BUTTON_JOIN = '🙏 Присоединиться';
-export const BOT_BUTTON_TODAY = '🌞 Сообщение на сегодня';
-export const BOT_BUTTON_TOMORROW = '🌙 Анонс на завтра';
+export const BOT_BUTTON_JOIN = '🙏 Подписаться';
+export const BOT_BUTTON_TODAY = '🌞 Сегодня';
+export const BOT_BUTTON_TOMORROW = '🌙 Завтра';
 export const LEGACY_BUTTON_JOIN = 'Присоединиться';
 export const LEGACY_BUTTON_TODAY = 'Сообщение на сегодня';
 export const LEGACY_BUTTON_TOMORROW = 'Анонс на завтра';
@@ -61,12 +61,16 @@ function summaryBlock(dateLocal: string, panchangJson: {
 
 function sanitizeGeneratedText(value: string): string {
   return value
-    .replace(/^#{1,6}\s*/gm, '')
+    .replace(/^\s*#{1,6}\s*/gm, '')
+    .replace(/^\s*[-*_]{3,}\s*$/gm, '')
     .replace(/\*\*/g, '')
     .replace(/__/g, '')
+    .replace(/~~/g, '')
     .replace(/`/g, '')
-    .replace(/^\s*[-*]\s+/gm, '🔸 ')
+    .replace(/^\s*[-*+]\s+/gm, '🔸 ')
     .replace(/^\s*\d+\.\s+/gm, '🔸 ')
+    .replace(/[*_]/g, '')
+    .replace(/[ \t]+$/gm, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -295,7 +299,11 @@ export class VedicHandlers {
     if (!forceRefresh) {
       const cached = await this.storage.getCache(cacheKey);
       if (cached) {
-        await this.telegramApi.sendMessage(chatId, cached);
+        const cleanedCached = sanitizeGeneratedText(cached);
+        if (cleanedCached !== cached) {
+          await this.storage.setCache(cacheKey, cleanedCached, this.storage.getEndOfLocalDayTs(timezoneName));
+        }
+        await this.telegramApi.sendMessage(chatId, cleanedCached);
         return;
       }
     }
