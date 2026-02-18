@@ -2,6 +2,7 @@ import { env } from '../config/env';
 import { UserStateRepo } from '../repos/UserStateRepo';
 import { TelegramApi } from '../services/TelegramApi';
 import type { TelegramMessage } from '../types/telegram';
+import type { ReplyKeyboardMarkup } from '../types/telegram';
 import { getNowInTimezone } from '../utils/time';
 import { LlmService, OpenRouterRateLimitError } from './llmService';
 import { VedicPanchangService } from './panchangService';
@@ -15,11 +16,12 @@ function removeKeyboard() {
 }
 
 function locationKeyboard() {
-  return {
+  const keyboard: ReplyKeyboardMarkup = {
     keyboard: [[{ text: 'Send location', request_location: true }], [{ text: CANCEL_TEXT }]],
     resize_keyboard: true,
     one_time_keyboard: true
-  } as const;
+  };
+  return keyboard;
 }
 
 function fieldOrNA(value: string | null): string {
