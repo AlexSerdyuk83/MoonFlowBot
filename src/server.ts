@@ -72,9 +72,14 @@ app.post(['/telegram/webhook', '/telegram/webhook/:secret'], async (req: Request
   }
 
   const update = req.body as TelegramUpdate;
-  await telegramController.handle(update);
-
   res.status(200).json({ ok: true });
+
+  void telegramController.handle(update).catch((error: unknown) => {
+    logger.error('Async webhook processing failed', {
+      error: error instanceof Error ? error.message : String(error),
+      updateId: update.update_id
+    });
+  });
 });
 
 app.listen(env.port, () => {

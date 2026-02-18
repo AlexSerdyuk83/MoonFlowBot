@@ -18,6 +18,27 @@ const CALLBACK = {
   SETTINGS_DISABLE: 'SETTINGS_DISABLE',
   SETTINGS_ENABLE: 'SETTINGS_ENABLE'
 } as const;
+
+const UPDATE_DEDUPE_TTL_MS = 10 * 60 * 1000;
+const processedUpdateIds = new Map<number, number>();
+
+function isDuplicateUpdate(updateId: number): boolean {
+  const now = Date.now();
+
+  for (const [key, ts] of processedUpdateIds) {
+    if (now - ts > UPDATE_DEDUPE_TTL_MS) {
+      processedUpdateIds.delete(key);
+    }
+  }
+
+  if (processedUpdateIds.has(updateId)) {
+    return true;
+  }
+
+  processedUpdateIds.set(updateId, now);
+  return false;
+}
+
 export class TelegramWebhookController {
   constructor(
     private readonly telegramApi: TelegramApi,
@@ -29,6 +50,10 @@ export class TelegramWebhookController {
 
   async handle(update: TelegramUpdate): Promise<void> {
     try {
+      if (isDuplicateUpdate(update.update_id)) {
+        return;
+      }
+
       if (update.callback_query) {
         await this.handleCallback(update.callback_query);
         return;

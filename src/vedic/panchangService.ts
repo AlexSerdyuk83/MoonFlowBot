@@ -195,13 +195,21 @@ export class VedicPanchangService {
 
     const tithiNumber = asNumber(tithi.number);
     const paksha = getPakshaByTithiNumber(tithiNumber);
-    const openMeteoSun = await this.fetchSunTimesFromOpenMeteo({
+    const sunriseSunsetOrg = await this.fetchSunTimesFromSunriseSunsetOrg({
       lat: params.lat,
       lon: params.lon,
       timezone: params.timezone,
       dateLocal
     });
-    const normalizedSun = openMeteoSun ?? (await this.resolveSunTimes({
+    const openMeteoSun = sunriseSunsetOrg
+      ? null
+      : await this.fetchSunTimesFromOpenMeteo({
+        lat: params.lat,
+        lon: params.lon,
+        timezone: params.timezone,
+        dateLocal
+      });
+    const normalizedSun = sunriseSunsetOrg ?? openMeteoSun ?? (await this.resolveSunTimes({
       date: params.date,
       lat: params.lat,
       lon: params.lon,
@@ -234,6 +242,63 @@ export class VedicPanchangService {
       karana: { name: asString(karana.name) },
       moonPhase: getMoonPhaseByTithiNumber(tithiNumber)
     };
+  }
+
+  private async fetchSunTimesFromSunriseSunsetOrg(params: {
+    lat: number;
+    lon: number;
+    timezone: string;
+    dateLocal: string;
+  }): Promise<{ sunrise: string | null; sunset: string | null } | null> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 7000);
+
+    try {
+      const url = new URL('https://api.sunrise-sunset.org/json');
+      url.searchParams.set('lat', String(params.lat));
+      url.searchParams.set('lng', String(params.lon));
+      url.searchParams.set('date', params.dateLocal);
+      url.searchParams.set('formatted', '0');
+
+      const response = await fetch(url.toString(), { signal: controller.signal });
+      if (!response.ok) {
+        return null;
+      }
+
+      const payload = (await response.json()) as {
+        status?: string;
+        results?: {
+          sunrise?: string;
+          sunset?: string;
+        };
+      };
+
+      if (payload.status !== 'OK') {
+        return null;
+      }
+
+      const sunriseIso = payload.results?.sunrise;
+      const sunsetIso = payload.results?.sunset;
+      if (!sunriseIso || !sunsetIso) {
+        return null;
+      }
+
+      const sunrise = asLocalTime(sunriseIso, params.timezone);
+      const sunset = asLocalTime(sunsetIso, params.timezone);
+      if (!sunrise || !sunset) {
+        return null;
+      }
+
+      if (scoreSunPair(sunrise, sunset) >= scoreSunPair(sunset, sunrise)) {
+        return { sunrise, sunset };
+      }
+
+      return { sunrise: sunset, sunset: sunrise };
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private async fetchSunTimesFromOpenMeteo(params: {
