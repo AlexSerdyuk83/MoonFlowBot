@@ -33,7 +33,7 @@ function locationKeyboard() {
 
 function controlKeyboard(): ReplyKeyboardMarkup {
   return {
-    keyboard: [[{ text: BOT_BUTTON_JOIN }, { text: BOT_BUTTON_TODAY }, { text: BOT_BUTTON_TOMORROW }]],
+    keyboard: [[{ text: BOT_BUTTON_JOIN }], [{ text: BOT_BUTTON_TODAY }], [{ text: BOT_BUTTON_TOMORROW }]],
     resize_keyboard: true
   };
 }
