@@ -12,6 +12,11 @@ import { PanchangService } from './services/PanchangService';
 import { TelegramApi } from './services/TelegramApi';
 import type { TelegramUpdate } from './types/telegram';
 import { logger } from './utils/logger';
+import { LlmService } from './vedic/llmService';
+import { VedicHandlers } from './vedic/handlers';
+import { VedicPanchangService } from './vedic/panchangService';
+import { VedicStorage } from './vedic/storage';
+import { VedicThesesService } from './vedic/vedicTheses';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -25,12 +30,25 @@ const moonPhaseService = new MoonPhaseService();
 const panchangService = new PanchangService();
 const contentComposer = new ContentComposer();
 const dailyMessageService = new DailyMessageService(moonPhaseService, panchangService, contentComposer);
+const vedicStorage = new VedicStorage(userRepo);
+const vedicPanchangService = new VedicPanchangService();
+const vedicThesesService = new VedicThesesService();
+const llmService = new LlmService();
+const vedicHandlers = new VedicHandlers(
+  telegramApi,
+  userStateRepo,
+  vedicStorage,
+  vedicPanchangService,
+  vedicThesesService,
+  llmService
+);
 
 const telegramController = new TelegramWebhookController(
   telegramApi,
   userRepo,
   userStateRepo,
-  dailyMessageService
+  dailyMessageService,
+  vedicHandlers
 );
 
 const scheduler = new SchedulerService(userRepo, deliveryLogRepo, telegramApi, dailyMessageService);

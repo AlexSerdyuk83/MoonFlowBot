@@ -20,5 +20,10 @@ export const env = {
   supabaseUrl: process.env.SUPABASE_URL as string,
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY as string,
   defaultLat: Number(process.env.DEFAULT_LAT ?? 52.3676),
-  defaultLon: Number(process.env.DEFAULT_LON ?? 4.9041)
+  defaultLon: Number(process.env.DEFAULT_LON ?? 4.9041),
+  openrouterApiKey: process.env.OPENROUTER_API_KEY,
+  openrouterModel: process.env.OPENROUTER_MODEL ?? 'deepseek/deepseek-r1-0528:free',
+  openrouterReferer: process.env.OPENROUTER_REFERER,
+  openrouterTitle: process.env.OPENROUTER_TITLE ?? 'MoonFlowBot',
+  adminTelegramUserId: process.env.ADMIN_TELEGRAM_USER_ID
 };

@@ -13,6 +13,8 @@ create table if not exists users (
   telegram_user_id bigint not null unique,
   telegram_chat_id bigint not null,
   timezone text not null default 'Europe/Amsterdam',
+  lat double precision,
+  lon double precision,
   morning_time text,
   evening_time text,
   is_active boolean not null default true,
@@ -37,7 +39,8 @@ create table if not exists user_states (
       'WAITING_MORNING_TIME',
       'WAITING_EVENING_TIME',
       'WAITING_UPDATE_MORNING_TIME',
-      'WAITING_UPDATE_EVENING_TIME'
+      'WAITING_UPDATE_EVENING_TIME',
+      'WAITING_LOCATION'
     )
   )
 );
@@ -61,3 +64,28 @@ create table if not exists delivery_logs (
 
 create index if not exists idx_delivery_logs_user_id on delivery_logs(user_id);
 create index if not exists idx_delivery_logs_target_date on delivery_logs(target_date);
+
+alter table users add column if not exists lat double precision;
+alter table users add column if not exists lon double precision;
+
+alter table user_states drop constraint if exists user_states_step_allowed;
+alter table user_states
+  add constraint user_states_step_allowed
+  check (
+    step in (
+      'IDLE',
+      'WAITING_MORNING_TIME',
+      'WAITING_EVENING_TIME',
+      'WAITING_UPDATE_MORNING_TIME',
+      'WAITING_UPDATE_EVENING_TIME',
+      'WAITING_LOCATION'
+    )
+  );
+
+create table if not exists cache (
+  cache_key text primary key,
+  value text not null,
+  expires_at bigint not null
+);
+
+create index if not exists idx_cache_expires_at on cache(expires_at);

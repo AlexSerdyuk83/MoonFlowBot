@@ -7,6 +7,7 @@ Production-ready Telegram-бот на Node.js + TypeScript + Express + Supabase.
 - сохраняет расписание утро/вечер в Supabase,
 - отправляет сообщения 2 раза в день (утро: на сегодня, вечер: на завтра),
 - формирует контент детерминированно по JSON-правилам (без LLM),
+- умеет выдавать ведический день на сегодня (`/today`) по локации пользователя с интерпретацией через OpenRouter,
 - использует дедупликацию отправок через `delivery_logs.dedupe_key`.
 
 ## Стек
@@ -38,6 +39,8 @@ Production-ready Telegram-бот на Node.js + TypeScript + Express + Supabase.
 - `TELEGRAM_WEBHOOK_SECRET` — секрет в URL webhook
 - `TELEGRAM_WEBHOOK_TOKEN` — секретный заголовок от Telegram (опционально)
 - `DEFAULT_TIMEZONE` — системная таймзона (по умолчанию `Europe/Amsterdam`)
+- `OPENROUTER_API_KEY` — ключ OpenRouter для генерации интерпретации
+- `OPENROUTER_MODEL` — модель OpenRouter (опционально, по умолчанию `deepseek/deepseek-r1-0528:free`)
 - `SUPABASE_URL` — URL проекта Supabase
 - `SUPABASE_SERVICE_ROLE_KEY` — service role key (только backend)
 - `DEFAULT_LAT`, `DEFAULT_LON` — координаты по умолчанию для Panchang
@@ -152,8 +155,12 @@ npm run webhook:delete
 - `/settings` — текущее расписание и кнопки управления
 - `/stop` — выключить рассылку
 - `/resume` — включить рассылку
-- `/today` — ручное сообщение на сегодня
+- `/setlocation` — запросить и сохранить геолокацию
+- `/settimezone Europe/Moscow` — вручную задать таймзону (если автоопределение недоступно)
+- `/today` — ведический день на сегодня (панчанга + рекомендации)
+- `/refresh` — пересчитать `/today` в обход кэша
 - `/tomorrow` — ручной анонс на завтра
+- `/debug` — вывести сырой JSON панчанги (dev/admin)
 
 ## Деплой (минимально)
 
@@ -161,7 +168,7 @@ npm run webhook:delete
 2. Пропиши ENV.
 3. Примени `migrations/schema.sql` в Supabase.
 4. Поставь webhook на публичный HTTPS URL.
-5. Проверь `/health`, потом `/start`, `/today`, `/tomorrow`.
+5. Проверь `/health`, потом `/start`, `/setlocation`, `/today`, `/refresh`, `/tomorrow`.
 
 ## Примечания
 
@@ -169,3 +176,10 @@ npm run webhook:delete
 - Если Moon API недоступен, сообщение формируется без лунного блока (с явным уведомлением).
 - Для Panchang используется пакет `@bidyashish/panchang`; при ошибке вызова применяется детерминированный fallback.
 - Дисклеймер в каждом сообщении: `Наблюдай самочувствие; это не медицинская рекомендация.`
+
+## Ручной тест vedic flow
+
+1. В Telegram отправь `/setlocation`.
+2. Нажми кнопку `Send location` и отправь геопозицию.
+3. Выполни `/today` и проверь ответ (сводка + разделы рекомендаций).
+4. Выполни `/refresh` и проверь, что ответ пересчитан заново (в обход кэша).

@@ -17,6 +17,10 @@ export interface TelegramMessage {
   chat: TelegramChat;
   date: number;
   text?: string;
+  location?: {
+    latitude: number;
+    longitude: number;
+  };
 }
 
 export interface TelegramCallbackQuery {
@@ -39,4 +43,19 @@ export interface InlineKeyboardButton {
 
 export interface InlineKeyboardMarkup {
   inline_keyboard: InlineKeyboardButton[][];
+}
+
+export interface ReplyKeyboardButton {
+  text: string;
+  request_location?: boolean;
+}
+
+export interface ReplyKeyboardMarkup {
+  keyboard: ReplyKeyboardButton[][];
+  resize_keyboard?: boolean;
+  one_time_keyboard?: boolean;
+}
+
+export interface ReplyKeyboardRemove {
+  remove_keyboard: boolean;
 }

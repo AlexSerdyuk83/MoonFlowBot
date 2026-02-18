@@ -7,13 +7,16 @@ export type OnboardingStep =
   | 'WAITING_MORNING_TIME'
   | 'WAITING_EVENING_TIME'
   | 'WAITING_UPDATE_MORNING_TIME'
-  | 'WAITING_UPDATE_EVENING_TIME';
+  | 'WAITING_UPDATE_EVENING_TIME'
+  | 'WAITING_LOCATION';
 
 export interface UserRecord {
   id: string;
   telegram_user_id: string;
   telegram_chat_id: string;
   timezone: string;
+  lat: number | null;
+  lon: number | null;
   morning_time: string | null;
   evening_time: string | null;
   is_active: boolean;

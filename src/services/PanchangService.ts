@@ -1,4 +1,4 @@
-import panchangLib from '@bidyashish/panchang';
+import * as panchangLib from '@bidyashish/panchang';
 import type { PanchangData } from '../types/domain';
 import { logger } from '../utils/logger';
 

@@ -7,6 +7,7 @@ import type { OnboardingStep } from '../types/domain';
 import type { TelegramCallbackQuery, TelegramMessage, TelegramUpdate } from '../types/telegram';
 import { logger } from '../utils/logger';
 import { getNowInTimezone, isValidTimeHHmm } from '../utils/time';
+import { VedicHandlers } from '../vedic/handlers';
 
 const CALLBACK = {
   JOIN: 'JOIN',
@@ -23,7 +24,8 @@ export class TelegramWebhookController {
     private readonly telegramApi: TelegramApi,
     private readonly userRepo: UserRepo,
     private readonly userStateRepo: UserStateRepo,
-    private readonly dailyMessageService: DailyMessageService
+    private readonly dailyMessageService: DailyMessageService,
+    private readonly vedicHandlers: VedicHandlers
   ) {}
 
   async handle(update: TelegramUpdate): Promise<void> {
@@ -48,12 +50,23 @@ export class TelegramWebhookController {
     const text = message.text?.trim();
     const from = message.from;
 
-    if (!from || !text) {
+    if (!from) {
       return;
     }
 
-    if (text.startsWith('/')) {
+    if (message.location) {
+      const handled = await this.vedicHandlers.handleLocationMessage(message);
+      if (handled) {
+        return;
+      }
+    }
+
+    if (text?.startsWith('/')) {
       await this.handleCommand(message, text);
+      return;
+    }
+
+    if (!text) {
       return;
     }
 
@@ -69,6 +82,11 @@ export class TelegramWebhookController {
     const chatId = message.chat.id;
     const userId = message.from?.id;
     if (!userId) {
+      return;
+    }
+
+    const handledByVedic = await this.vedicHandlers.handleCommand(message, text);
+    if (handledByVedic) {
       return;
     }
 
@@ -138,21 +156,20 @@ export class TelegramWebhookController {
       return;
     }
 
-    if (text === '/today' || text === '/tomorrow') {
+    if (text === '/tomorrow') {
       const user = await this.userRepo.findByTelegramUserId(userId);
       if (!user) {
         await this.telegramApi.sendMessage(chatId, 'Профиль не найден. Начни с /start.');
         return;
       }
 
-      const isTomorrow = text === '/tomorrow';
       const timezoneName = user.timezone || env.defaultTimezone;
       const base = getNowInTimezone(timezoneName);
-      const targetDate = isTomorrow ? base.add(1, 'day').toDate() : base.toDate();
+      const targetDate = base.add(1, 'day').toDate();
       const messageText = await this.dailyMessageService.buildMessage({
         date: targetDate,
         timezone: timezoneName,
-        mode: isTomorrow ? 'TOMORROW' : 'TODAY'
+        mode: 'TOMORROW'
       });
       await this.telegramApi.sendMessage(chatId, messageText);
       return;
@@ -175,6 +192,12 @@ export class TelegramWebhookController {
       return;
     }
 
+    if (data === CALLBACK.SEND_TODAY) {
+      await this.vedicHandlers.handleToday(chatId, userId, false);
+      await this.telegramApi.answerCallbackQuery(callback.id);
+      return;
+    }
+
     const user = await this.userRepo.findByTelegramUserId(userId);
     if (!user) {
       await this.telegramApi.sendMessage(chatId, 'Профиль не найден. Начни с /start.');
@@ -182,9 +205,6 @@ export class TelegramWebhookController {
       return;
     }
 
-    if (data === CALLBACK.SEND_TODAY) {
-      await this.sendTodayMessage(chatId, user.timezone);
-    }
     if (data === CALLBACK.SEND_TOMORROW) {
       await this.sendTomorrowMessage(chatId, user.timezone);
     }
@@ -225,12 +245,16 @@ export class TelegramWebhookController {
       return;
     }
 
-    if (!isValidTimeHHmm(text)) {
-      await this.telegramApi.sendMessage(chatId, 'Нужен формат HH:mm, например 07:45. Попробуй еще раз.');
+    if (step === 'WAITING_LOCATION') {
+      await this.telegramApi.sendMessage(chatId, 'Отправь геолокацию кнопкой “Send location” или введи /cancel.');
       return;
     }
 
     if (step === 'WAITING_MORNING_TIME') {
+      if (!isValidTimeHHmm(text)) {
+        await this.telegramApi.sendMessage(chatId, 'Нужен формат HH:mm, например 07:45. Попробуй еще раз.');
+        return;
+      }
       await this.userStateRepo.upsertState(userId, 'WAITING_EVENING_TIME', {
         morning_time: text
       });
@@ -239,6 +263,10 @@ export class TelegramWebhookController {
     }
 
     if (step === 'WAITING_EVENING_TIME') {
+      if (!isValidTimeHHmm(text)) {
+        await this.telegramApi.sendMessage(chatId, 'Нужен формат HH:mm, например 07:45. Попробуй еще раз.');
+        return;
+      }
       const morning = typeof payload.morning_time === 'string' ? payload.morning_time : null;
       if (!morning || !isValidTimeHHmm(morning)) {
         await this.userStateRepo.upsertState(userId, 'WAITING_MORNING_TIME');
@@ -263,6 +291,10 @@ export class TelegramWebhookController {
     }
 
     if (step === 'WAITING_UPDATE_MORNING_TIME') {
+      if (!isValidTimeHHmm(text)) {
+        await this.telegramApi.sendMessage(chatId, 'Нужен формат HH:mm, например 07:45. Попробуй еще раз.');
+        return;
+      }
       const user = await this.userRepo.findByTelegramUserId(userId);
       if (!user) {
         await this.telegramApi.sendMessage(chatId, 'Профиль не найден. Начни с /start.');
@@ -276,6 +308,10 @@ export class TelegramWebhookController {
     }
 
     if (step === 'WAITING_UPDATE_EVENING_TIME') {
+      if (!isValidTimeHHmm(text)) {
+        await this.telegramApi.sendMessage(chatId, 'Нужен формат HH:mm, например 07:45. Попробуй еще раз.');
+        return;
+      }
       const user = await this.userRepo.findByTelegramUserId(userId);
       if (!user) {
         await this.telegramApi.sendMessage(chatId, 'Профиль не найден. Начни с /start.');

@@ -1,7 +1,7 @@
-import type { InlineKeyboardMarkup } from '../types/telegram';
+import type { InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove } from '../types/telegram';
 
 interface SendMessageOptions {
-  replyMarkup?: InlineKeyboardMarkup;
+  replyMarkup?: InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove;
 }
 
 export class TelegramApi {
