@@ -225,14 +225,14 @@ export class VedicHandlers {
     if (text === BOT_BUTTON_JOIN || text === LEGACY_BUTTON_JOIN) {
       await this.telegramApi.sendMessage(
         message.chat.id,
-        '🙏 Благодарю за доверие. Сейчас пришлю сводку ведического дня на сегодня.'
+        '🙏 Благодарю за доверие. Сейчас настроим время утренней и вечерней рассылки.'
       );
       const location = await this.storage.getUserLocation(userId);
       if (!location || location.lat == null || location.lon == null) {
-        await this.requestLocation(message.chat.id, userId, 'join_button', true);
+        await this.requestLocation(message.chat.id, userId, 'join_button');
         return true;
       }
-      await this.handleDay(message.chat.id, userId, false, 0, 'today');
+      await this.startSubscriptionTimeOnboarding(message.chat.id, userId, location.timezone || env.defaultTimezone);
       return true;
     }
 
@@ -274,7 +274,6 @@ export class VedicHandlers {
 
     await this.userStateRepo.clearState(userId);
     const source = typeof state?.payload?.source === 'string' ? state.payload.source : '';
-    const autoSendToday = state?.payload?.auto_send_today === true;
     const detectedHint = detectedTimezone
       ? ''
       : `\n⚠️ Не удалось точно определить таймзону по координатам, использую: ${timezoneName}. Можно изменить: /settimezone Europe/Moscow`;
@@ -285,9 +284,8 @@ export class VedicHandlers {
         `🪔 Локация сохранена: ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}.\n🕉️ Таймзона: ${timezoneName}.${detectedHint}\n\n🙏 Подключение завершено. Выбери действие кнопками ниже.`,
         { replyMarkup: controlKeyboard() }
       );
-      if (autoSendToday) {
-        await this.telegramApi.sendMessage(chatId, '🌼 Готовлю сводку на сегодня...');
-        await this.handleDay(chatId, userId, false, 0, 'today');
+      if (source === 'join_button') {
+        await this.startSubscriptionTimeOnboarding(chatId, userId, timezoneName);
       }
       return true;
     }
@@ -433,14 +431,21 @@ export class VedicHandlers {
   async requestLocation(
     chatId: number,
     userId: number,
-    source: 'start' | 'join_button' | 'setlocation',
-    autoSendToday = false
+    source: 'start' | 'join_button' | 'setlocation'
   ): Promise<void> {
-    await this.userStateRepo.upsertState(userId, 'WAITING_LOCATION', { source, auto_send_today: autoSendToday });
+    await this.userStateRepo.upsertState(userId, 'WAITING_LOCATION', { source });
     const text =
       source === 'setlocation'
         ? '📍 Отправь геолокацию, чтобы я сделал точный расчет.'
         : '🕉️ Намасте. Отправь геолокацию, чтобы я определил твою таймзону и подготовил точную сводку дня.';
     await this.telegramApi.sendMessage(chatId, text, { replyMarkup: locationKeyboard() });
+  }
+
+  private async startSubscriptionTimeOnboarding(chatId: number, userId: number, timezoneName: string): Promise<void> {
+    await this.userStateRepo.upsertState(userId, 'WAITING_MORNING_TIME', { timezone: timezoneName });
+    await this.telegramApi.sendMessage(
+      chatId,
+      `🕉️ Отлично. Таймзона: ${timezoneName}.\n🌅 Введи время утреннего сообщения в формате HH:mm (например, 08:30).`
+    );
   }
 }

@@ -291,19 +291,25 @@ export class TelegramWebhookController {
         return;
       }
 
+      const timezoneFromPayload = typeof payload.timezone === 'string' && payload.timezone.trim()
+        ? payload.timezone.trim()
+        : null;
+      const existingUser = await this.userRepo.findByTelegramUserId(userId);
+      const timezoneName = timezoneFromPayload ?? existingUser?.timezone ?? env.defaultTimezone;
+
       await this.userRepo.upsertOnboardingUser({
         telegramUserId: userId,
         telegramChatId: chatId,
-        timezone: env.defaultTimezone,
+        timezone: timezoneName,
         morningTime: morning,
         eveningTime: text
       });
       await this.userStateRepo.clearState(userId);
       await this.telegramApi.sendMessage(
         chatId,
-        `Готово. Настройки сохранены:\nУтро: ${morning}\nВечер: ${text}\nТаймзона: ${env.defaultTimezone}`
+        `🙏 Готово. Настройки сохранены:\n🌅 Утро: ${morning}\n🌙 Вечер: ${text}\n🕉️ Таймзона: ${timezoneName}`
       );
-      await this.sendTodayMessage(chatId, env.defaultTimezone);
+      await this.vedicHandlers.handleToday(chatId, userId, false);
       return;
     }
 
