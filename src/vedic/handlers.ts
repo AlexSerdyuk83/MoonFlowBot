@@ -11,9 +11,12 @@ import { VedicStorage } from './storage';
 import { VedicThesesService } from './vedicTheses';
 
 const CANCEL_TEXT = 'Отмена';
-const BUTTON_JOIN = 'Присоединиться';
-const BUTTON_TODAY = 'Сообщение на сегодня';
-const BUTTON_TOMORROW = 'Анонс на завтра';
+export const BOT_BUTTON_JOIN = '🙏 Присоединиться';
+export const BOT_BUTTON_TODAY = '🌞 Сообщение на сегодня';
+export const BOT_BUTTON_TOMORROW = '🌙 Анонс на завтра';
+export const LEGACY_BUTTON_JOIN = 'Присоединиться';
+export const LEGACY_BUTTON_TODAY = 'Сообщение на сегодня';
+export const LEGACY_BUTTON_TOMORROW = 'Анонс на завтра';
 
 function removeKeyboard() {
   return { remove_keyboard: true } as const;
@@ -30,7 +33,7 @@ function locationKeyboard() {
 
 function controlKeyboard(): ReplyKeyboardMarkup {
   return {
-    keyboard: [[{ text: BUTTON_JOIN }, { text: BUTTON_TODAY }, { text: BUTTON_TOMORROW }]],
+    keyboard: [[{ text: BOT_BUTTON_JOIN }, { text: BOT_BUTTON_TODAY }, { text: BOT_BUTTON_TOMORROW }]],
     resize_keyboard: true
   };
 }
@@ -54,6 +57,18 @@ function summaryBlock(dateLocal: string, panchangJson: {
     `🌄 Восход: ${fieldOrNA(panchangJson.sunrise)}`,
     `🌇 Закат: ${fieldOrNA(panchangJson.sunset)}`
   ].join('\n');
+}
+
+function sanitizeGeneratedText(value: string): string {
+  return value
+    .replace(/^#{1,6}\s*/gm, '')
+    .replace(/\*\*/g, '')
+    .replace(/__/g, '')
+    .replace(/`/g, '')
+    .replace(/^\s*[-*]\s+/gm, '🔸 ')
+    .replace(/^\s*\d+\.\s+/gm, '🔸 ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function isValidTimezone(timezoneName: string): boolean {
@@ -105,18 +120,18 @@ export class VedicHandlers {
     if (text.startsWith('/settimezone')) {
       const tzRaw = text.replace('/settimezone', '').trim();
       if (!tzRaw) {
-        await this.telegramApi.sendMessage(chatId, 'Укажи таймзону: /settimezone Europe/Moscow');
+        await this.telegramApi.sendMessage(chatId, '🕉️ Укажи таймзону так: /settimezone Europe/Moscow');
         return true;
       }
 
       if (!isValidTimezone(tzRaw)) {
-        await this.telegramApi.sendMessage(chatId, 'Неверная таймзона. Пример: Europe/Moscow');
+        await this.telegramApi.sendMessage(chatId, '⚠️ Неверная таймзона. Пример: Europe/Moscow');
         return true;
       }
 
       await this.storage.saveTimezone({ userId, chatId, timezone: tzRaw });
       await this.userStateRepo.clearState(userId);
-      await this.telegramApi.sendMessage(chatId, `Таймзона сохранена: ${tzRaw}`, {
+      await this.telegramApi.sendMessage(chatId, `🕉️ Таймзона сохранена: ${tzRaw}`, {
         replyMarkup: removeKeyboard()
       });
       return true;
@@ -130,7 +145,7 @@ export class VedicHandlers {
 
       const location = await this.storage.getUserLocation(userId);
       if (!location || location.lat == null || location.lon == null) {
-        await this.telegramApi.sendMessage(chatId, 'Сначала отправь локацию: /setlocation');
+        await this.telegramApi.sendMessage(chatId, '📍 Сначала отправь локацию: /setlocation');
         return true;
       }
 
@@ -144,7 +159,7 @@ export class VedicHandlers {
         });
         await this.telegramApi.sendMessage(chatId, JSON.stringify(panchang, null, 2));
       } catch (error) {
-        await this.telegramApi.sendMessage(chatId, `Не удалось посчитать панчангу: ${this.errorMessage(error)}`);
+        await this.telegramApi.sendMessage(chatId, `⚠️ Не удалось посчитать панчангу: ${this.errorMessage(error)}`);
       }
 
       return true;
@@ -152,7 +167,7 @@ export class VedicHandlers {
 
     if (text === '/cancel' || text === CANCEL_TEXT) {
       await this.userStateRepo.clearState(userId);
-      await this.telegramApi.sendMessage(chatId, 'Отменено.', {
+      await this.telegramApi.sendMessage(chatId, '🙏 Хорошо, остановил действие.', {
         replyMarkup: removeKeyboard()
       });
       return true;
@@ -167,12 +182,22 @@ export class VedicHandlers {
       return false;
     }
 
-    if (text === BUTTON_JOIN) {
-      await this.requestLocation(message.chat.id, userId, 'join_button');
+    if (text === BOT_BUTTON_JOIN || text === LEGACY_BUTTON_JOIN) {
+      await this.telegramApi.sendMessage(
+        message.chat.id,
+        '🙏 Благодарю за доверие. Сейчас пришлю сводку ведического дня на сегодня.'
+      );
+      const location = await this.storage.getUserLocation(userId);
+      if (!location || location.lat == null || location.lon == null) {
+        await this.requestLocation(message.chat.id, userId, 'join_button', true);
+        return true;
+      }
+      await this.handleToday(message.chat.id, userId, false);
       return true;
     }
 
-    if (text === BUTTON_TODAY) {
+    if (text === BOT_BUTTON_TODAY || text === LEGACY_BUTTON_TODAY) {
+      await this.telegramApi.sendMessage(message.chat.id, '🌼 Благодарю. Готовлю для тебя сводку на сегодня, это займет несколько секунд...');
       await this.handleToday(message.chat.id, userId, false);
       return true;
     }
@@ -203,20 +228,25 @@ export class VedicHandlers {
 
     await this.userStateRepo.clearState(userId);
     const source = typeof state?.payload?.source === 'string' ? state.payload.source : '';
+    const autoSendToday = state?.payload?.auto_send_today === true;
     const detectedHint = detectedTimezone
       ? ''
-      : `\nНе удалось точно определить таймзону по координатам, использую: ${timezoneName}. Можно изменить: /settimezone Europe/Moscow`;
+      : `\n⚠️ Не удалось точно определить таймзону по координатам, использую: ${timezoneName}. Можно изменить: /settimezone Europe/Moscow`;
 
     if (source === 'start' || source === 'join_button') {
       await this.telegramApi.sendMessage(
         chatId,
-        `Локация сохранена: ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}.\nТаймзона: ${timezoneName}.${detectedHint}\n\nПодключение завершено. Выбери действие кнопками ниже.`,
+        `🪔 Локация сохранена: ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}.\n🕉️ Таймзона: ${timezoneName}.${detectedHint}\n\n🙏 Подключение завершено. Выбери действие кнопками ниже.`,
         { replyMarkup: controlKeyboard() }
       );
+      if (autoSendToday) {
+        await this.telegramApi.sendMessage(chatId, '🌼 Готовлю сводку на сегодня...');
+        await this.handleToday(chatId, userId, false);
+      }
       return true;
     }
 
-    await this.telegramApi.sendMessage(chatId, `Локация сохранена: ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}.\nТаймзона: ${timezoneName}.${detectedHint}`, {
+    await this.telegramApi.sendMessage(chatId, `🪔 Локация сохранена: ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}.\n🕉️ Таймзона: ${timezoneName}.${detectedHint}`, {
       replyMarkup: controlKeyboard()
     });
 
@@ -226,10 +256,7 @@ export class VedicHandlers {
   async handleToday(chatId: number, userId: number, forceRefresh: boolean): Promise<void> {
     const location = await this.storage.getUserLocation(userId);
     if (!location || location.lat == null || location.lon == null) {
-      await this.userStateRepo.upsertState(userId, 'WAITING_LOCATION');
-      await this.telegramApi.sendMessage(chatId, 'Сначала нужна геолокация. Нажми кнопку ниже и отправь location.', {
-        replyMarkup: locationKeyboard()
-      });
+      await this.requestLocation(chatId, userId, 'setlocation');
       return;
     }
 
@@ -246,7 +273,7 @@ export class VedicHandlers {
         lon: location.lon
       });
     } catch {
-      await this.telegramApi.sendMessage(chatId, 'Не удалось вычислить панчангу. Попробуй снова через /refresh.');
+      await this.telegramApi.sendMessage(chatId, '⚠️ Не удалось вычислить панчангу. Попробуй снова через /refresh.');
       return;
     }
 
@@ -275,12 +302,12 @@ export class VedicHandlers {
 
     try {
       const llmText = await this.llmService.generateVedicDay(panchangJson, theses);
-      const output = `${summaryBlock(dateLocal, panchangJson)}\n\n${llmText}`;
+      const output = `${summaryBlock(dateLocal, panchangJson)}\n\n${sanitizeGeneratedText(llmText)}`;
       await this.storage.setCache(cacheKey, output, this.storage.getEndOfLocalDayTs(timezoneName));
       await this.telegramApi.sendMessage(chatId, output);
     } catch (error) {
       if (error instanceof OpenRouterRateLimitError) {
-        await this.telegramApi.sendMessage(chatId, 'Сейчас лимит LLM, попробуй позже.');
+        await this.telegramApi.sendMessage(chatId, '⏳ Сейчас лимит LLM, попробуй чуть позже.');
         return;
       }
 
@@ -295,7 +322,7 @@ export class VedicHandlers {
       const debugSuffix = isDebugUser ? `\n\nТех.детали: ${this.errorMessage(error)}` : '';
       await this.telegramApi.sendMessage(
         chatId,
-        `${summaryBlock(dateLocal, panchangJson)}\n\nИнтерпретация временно недоступна. Попробуй /refresh позже.${debugSuffix}`
+        `${summaryBlock(dateLocal, panchangJson)}\n\n⚠️ Интерпретация временно недоступна. Попробуй /refresh позже.${debugSuffix}`
       );
     }
   }
@@ -333,12 +360,17 @@ export class VedicHandlers {
     }
   }
 
-  async requestLocation(chatId: number, userId: number, source: 'start' | 'join_button' | 'setlocation'): Promise<void> {
-    await this.userStateRepo.upsertState(userId, 'WAITING_LOCATION', { source });
+  async requestLocation(
+    chatId: number,
+    userId: number,
+    source: 'start' | 'join_button' | 'setlocation',
+    autoSendToday = false
+  ): Promise<void> {
+    await this.userStateRepo.upsertState(userId, 'WAITING_LOCATION', { source, auto_send_today: autoSendToday });
     const text =
       source === 'setlocation'
-        ? 'Отправь геолокацию'
-        : 'Привет. Сначала отправь геолокацию, чтобы я определил таймзону и рассчитывал ведический день корректно.';
+        ? '📍 Отправь геолокацию, чтобы я сделал точный расчет.'
+        : '🕉️ Намасте. Отправь геолокацию, чтобы я определил твою таймзону и подготовил точную сводку дня.';
     await this.telegramApi.sendMessage(chatId, text, { replyMarkup: locationKeyboard() });
   }
 }

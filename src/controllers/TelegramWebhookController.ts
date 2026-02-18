@@ -7,7 +7,11 @@ import type { OnboardingStep } from '../types/domain';
 import type { TelegramCallbackQuery, TelegramMessage, TelegramUpdate } from '../types/telegram';
 import { logger } from '../utils/logger';
 import { getNowInTimezone, isValidTimeHHmm } from '../utils/time';
-import { VedicHandlers } from '../vedic/handlers';
+import {
+  BOT_BUTTON_TOMORROW,
+  LEGACY_BUTTON_TOMORROW,
+  VedicHandlers
+} from '../vedic/handlers';
 
 const CALLBACK = {
   JOIN: 'JOIN',
@@ -18,8 +22,6 @@ const CALLBACK = {
   SETTINGS_DISABLE: 'SETTINGS_DISABLE',
   SETTINGS_ENABLE: 'SETTINGS_ENABLE'
 } as const;
-const BUTTON_TOMORROW = 'Анонс на завтра';
-
 export class TelegramWebhookController {
   constructor(
     private readonly telegramApi: TelegramApi,
@@ -76,7 +78,8 @@ export class TelegramWebhookController {
       return;
     }
 
-    if (text === BUTTON_TOMORROW) {
+    if (text === BOT_BUTTON_TOMORROW || text === LEGACY_BUTTON_TOMORROW) {
+      await this.telegramApi.sendMessage(message.chat.id, '🌙 Благодарю. Готовлю анонс на завтра, пожалуйста, подожди немного...');
       await this.handleCommand(message, '/tomorrow');
       return;
     }
@@ -243,7 +246,7 @@ export class TelegramWebhookController {
     }
 
     if (step === 'WAITING_LOCATION') {
-      await this.telegramApi.sendMessage(chatId, 'Отправь геолокацию кнопкой “Send location” или введи /cancel.');
+      await this.telegramApi.sendMessage(chatId, '📍 Пожалуйста, отправь геолокацию кнопкой “Send location” или введи /cancel.');
       return;
     }
 
