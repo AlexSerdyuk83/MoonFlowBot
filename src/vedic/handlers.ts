@@ -75,6 +75,36 @@ function sanitizeGeneratedText(value: string): string {
     .trim();
 }
 
+function parseClockToMinutes(value: string | null): number | null {
+  if (!value || !/^\d{2}:\d{2}$/.test(value)) {
+    return null;
+  }
+  const [hoursRaw, minutesRaw] = value.split(':');
+  const hours = Number(hoursRaw);
+  const minutes = Number(minutesRaw);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null;
+  }
+  return hours * 60 + minutes;
+}
+
+function normalizeSunOrderForOutput(panchangJson: {
+  sunrise: string | null;
+  sunset: string | null;
+}): void {
+  const sunriseMin = parseClockToMinutes(panchangJson.sunrise);
+  const sunsetMin = parseClockToMinutes(panchangJson.sunset);
+  if (sunriseMin == null || sunsetMin == null) {
+    return;
+  }
+
+  if (sunriseMin > sunsetMin) {
+    const sunrise = panchangJson.sunrise;
+    panchangJson.sunrise = panchangJson.sunset;
+    panchangJson.sunset = sunrise;
+  }
+}
+
 function isValidTimezone(timezoneName: string): boolean {
   try {
     Intl.DateTimeFormat('ru-RU', { timeZone: timezoneName }).format(new Date());
@@ -287,6 +317,8 @@ export class VedicHandlers {
       nakshatraName: panchangJson.nakshatra.name,
       vara: panchangJson.vara
     });
+
+    normalizeSunOrderForOutput(panchangJson);
 
     const cacheKey = this.storage.buildCacheKey({
       userId,
