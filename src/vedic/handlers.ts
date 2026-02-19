@@ -290,7 +290,7 @@ export class VedicHandlers {
 
     await this.userStateRepo.clearState(userId);
 
-    const includeJoinButton = !Boolean(existing?.isSubscribed);
+    const includeJoinButton = !existing?.isSubscribed;
     const fallbackNote = resolved
       ? ''
       : '\n⚠️ Город не удалось определить точно, использую таймзону по умолчанию: Europe/Moscow.';
@@ -298,14 +298,14 @@ export class VedicHandlers {
 
     if (source === 'join_button') {
       await this.telegramApi.sendMessage(chatId, `${text}\n\n🙏 Подключение завершено. Теперь настроим время рассылок.`, {
-        replyMarkup: controlKeyboard(includeJoinButton)
+        replyMarkup: includeJoinButton ? controlKeyboard(true) : removeKeyboard()
       });
       await this.startSubscriptionTimeOnboarding(chatId, userId, timezoneName);
       return;
     }
 
     await this.telegramApi.sendMessage(chatId, `${text}\n\n🙏 Подключение завершено. Выбери действие кнопками ниже.`, {
-      replyMarkup: controlKeyboard(includeJoinButton)
+      replyMarkup: includeJoinButton ? controlKeyboard(true) : removeKeyboard()
     });
   }
 
