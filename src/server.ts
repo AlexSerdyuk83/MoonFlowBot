@@ -51,7 +51,7 @@ const telegramController = new TelegramWebhookController(
   vedicHandlers
 );
 
-const scheduler = new SchedulerService(userRepo, deliveryLogRepo, telegramApi, dailyMessageService);
+const scheduler = new SchedulerService(userRepo, deliveryLogRepo, vedicHandlers);
 
 app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({ ok: true, ts: new Date().toISOString() });

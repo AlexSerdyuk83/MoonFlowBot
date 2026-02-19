@@ -5,11 +5,10 @@ import timezone from 'dayjs/plugin/timezone';
 import { env } from '../config/env';
 import { DeliveryLogRepo } from '../repos/DeliveryLogRepo';
 import { UserRepo } from '../repos/UserRepo';
-import { DailyMessageService } from '../services/DailyMessageService';
-import { TelegramApi } from '../services/TelegramApi';
 import type { DeliveryType, UserRecord } from '../types/domain';
 import { logger } from '../utils/logger';
 import { isoDateInTimezone } from '../utils/time';
+import { VedicHandlers } from '../vedic/handlers';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -18,8 +17,7 @@ export class SchedulerService {
   constructor(
     private readonly userRepo: UserRepo,
     private readonly deliveryLogRepo: DeliveryLogRepo,
-    private readonly telegramApi: TelegramApi,
-    private readonly dailyMessageService: DailyMessageService
+    private readonly vedicHandlers: VedicHandlers
   ) {}
 
   start(): void {
@@ -78,13 +76,17 @@ export class SchedulerService {
     }
 
     try {
-      const message = await this.dailyMessageService.buildMessage({
-        date: targetDate,
-        timezone: timezoneName,
-        mode
-      });
+      const chatId = Number(user.telegram_chat_id);
+      const telegramUserId = Number(user.telegram_user_id);
+      if (!Number.isFinite(chatId) || !Number.isFinite(telegramUserId)) {
+        throw new Error(`Invalid chat/user id for user=${user.id}`);
+      }
 
-      await this.telegramApi.sendMessage(user.telegram_chat_id, message);
+      if (mode === 'TODAY') {
+        await this.vedicHandlers.handleToday(chatId, telegramUserId, false);
+      } else {
+        await this.vedicHandlers.handleTomorrow(chatId, telegramUserId, false);
+      }
       await this.deliveryLogRepo.updateStatus(reserve.logId, 'SENT', null);
     } catch (error) {
       const errorText = error instanceof Error ? error.message : String(error);
