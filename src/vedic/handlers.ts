@@ -11,6 +11,9 @@ import { VedicStorage } from './storage';
 import { VedicThesesService } from './vedicTheses';
 
 const CANCEL_TEXT = 'Отмена';
+const FALLBACK_TIMEZONE = 'Europe/Moscow';
+const FALLBACK_LAT = 55.7558;
+const FALLBACK_LON = 37.6173;
 export const BOT_BUTTON_JOIN = '🙏 Подписаться';
 export const BOT_BUTTON_TODAY = '🌞 Сегодня';
 export const BOT_BUTTON_TOMORROW = '🌙 Завтра';
@@ -20,15 +23,6 @@ export const LEGACY_BUTTON_TOMORROW = 'Анонс на завтра';
 
 function removeKeyboard() {
   return { remove_keyboard: true } as const;
-}
-
-function locationKeyboard() {
-  const keyboard: ReplyKeyboardMarkup = {
-    keyboard: [[{ text: 'Send location', request_location: true }], [{ text: CANCEL_TEXT }]],
-    resize_keyboard: true,
-    one_time_keyboard: true
-  };
-  return keyboard;
 }
 
 function controlKeyboard(includeJoinButton: boolean): ReplyKeyboardMarkup {
@@ -139,12 +133,12 @@ export class VedicHandlers {
     }
 
     if (text === '/start') {
-      await this.requestLocation(chatId, userId, 'start');
+      await this.requestCity(chatId, userId, 'start');
       return true;
     }
 
-    if (text === '/setlocation') {
-      await this.requestLocation(chatId, userId, 'setlocation');
+    if (text === '/setcity' || text === '/setlocation') {
+      await this.requestCity(chatId, userId, 'setcity');
       return true;
     }
 
@@ -190,18 +184,17 @@ export class VedicHandlers {
       }
 
       const location = await this.storage.getUserLocation(userId);
-      if (!location || location.lat == null || location.lon == null) {
-        await this.telegramApi.sendMessage(chatId, '📍 Сначала отправь локацию: /setlocation');
-        return true;
-      }
+      const timezoneName = location?.timezone || FALLBACK_TIMEZONE;
+      const lat = location?.lat ?? FALLBACK_LAT;
+      const lon = location?.lon ?? FALLBACK_LON;
 
       try {
-        const nowLocal = getNowInTimezone(location.timezone || env.defaultTimezone);
+        const nowLocal = getNowInTimezone(timezoneName);
         const panchang = await this.panchangService.computePanchang({
           date: nowLocal.toDate(),
-          timezone: location.timezone,
-          lat: location.lat,
-          lon: location.lon
+          timezone: timezoneName,
+          lat,
+          lon
         });
         await this.telegramApi.sendMessage(chatId, JSON.stringify(panchang, null, 2));
       } catch (error) {
@@ -234,11 +227,11 @@ export class VedicHandlers {
         '🙏 Благодарю за доверие. Сейчас настроим время утренней и вечерней рассылки.'
       );
       const location = await this.storage.getUserLocation(userId);
-      if (!location || location.lat == null || location.lon == null) {
-        await this.requestLocation(message.chat.id, userId, 'join_button');
+      if (!location) {
+        await this.requestCity(message.chat.id, userId, 'join_button');
         return true;
       }
-      await this.startSubscriptionTimeOnboarding(message.chat.id, userId, location.timezone || env.defaultTimezone);
+      await this.startSubscriptionTimeOnboarding(message.chat.id, userId, location.timezone || FALLBACK_TIMEZONE);
       return true;
     }
 
@@ -257,51 +250,63 @@ export class VedicHandlers {
     return false;
   }
 
-  async handleLocationMessage(message: TelegramMessage): Promise<boolean> {
-    const userId = message.from?.id;
-    const location = message.location;
-    if (!userId || !location) {
-      return false;
+  async handleCityInput(
+    chatId: number,
+    userId: number,
+    cityInput: string,
+    payload: Record<string, unknown>
+  ): Promise<void> {
+    const city = cityInput.trim();
+    if (city.length < 2) {
+      await this.telegramApi.sendMessage(chatId, '🏙️ Введи город текстом, например: Москва.');
+      return;
     }
 
-    const chatId = message.chat.id;
-    const state = await this.userStateRepo.getByTelegramUserId(userId);
+    const source = typeof payload.source === 'string' ? payload.source : '';
     const existing = await this.storage.getUserLocation(userId);
-    const detectedTimezone = await this.detectTimezoneByCoordinates(location.latitude, location.longitude);
-    const timezoneName = detectedTimezone ?? existing?.timezone ?? env.defaultTimezone;
+    const resolved = await this.resolveCity(city);
+    const cityLabel = resolved ? `${resolved.name}${resolved.country ? `, ${resolved.country}` : ''}` : city;
+    const timezoneName = resolved?.timezone && isValidTimezone(resolved.timezone)
+      ? resolved.timezone
+      : FALLBACK_TIMEZONE;
 
-    await this.storage.saveLocation({
-      userId,
-      chatId,
-      lat: location.latitude,
-      lon: location.longitude,
-      timezone: timezoneName
-    });
+    if (resolved?.lat != null && resolved.lon != null) {
+      await this.storage.saveLocation({
+        userId,
+        chatId,
+        cityName: cityLabel,
+        lat: resolved.lat,
+        lon: resolved.lon,
+        timezone: timezoneName
+      });
+    } else {
+      await this.storage.saveTimezone({
+        userId,
+        chatId,
+        cityName: cityLabel,
+        timezone: timezoneName
+      });
+    }
 
     await this.userStateRepo.clearState(userId);
-    const source = typeof state?.payload?.source === 'string' ? state.payload.source : '';
-    const includeJoinButton = !Boolean(existing?.isSubscribed);
-    const detectedHint = detectedTimezone
-      ? ''
-      : `\n⚠️ Не удалось точно определить таймзону по координатам, использую: ${timezoneName}. Можно изменить: /settimezone Europe/Moscow`;
 
-    if (source === 'start' || source === 'join_button') {
-      await this.telegramApi.sendMessage(
-        chatId,
-        `🪔 Локация сохранена: ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}.\n🕉️ Таймзона: ${timezoneName}.${detectedHint}\n\n🙏 Подключение завершено. Выбери действие кнопками ниже.`,
-        { replyMarkup: controlKeyboard(includeJoinButton) }
-      );
-      if (source === 'join_button') {
-        await this.startSubscriptionTimeOnboarding(chatId, userId, timezoneName);
-      }
-      return true;
+    const includeJoinButton = !Boolean(existing?.isSubscribed);
+    const fallbackNote = resolved
+      ? ''
+      : '\n⚠️ Город не удалось определить точно, использую таймзону по умолчанию: Europe/Moscow.';
+    const text = `🪔 Город сохранен: ${cityLabel}.\n🕉️ Таймзона: ${timezoneName}.${fallbackNote}`;
+
+    if (source === 'join_button') {
+      await this.telegramApi.sendMessage(chatId, `${text}\n\n🙏 Подключение завершено. Теперь настроим время рассылок.`, {
+        replyMarkup: controlKeyboard(includeJoinButton)
+      });
+      await this.startSubscriptionTimeOnboarding(chatId, userId, timezoneName);
+      return;
     }
 
-    await this.telegramApi.sendMessage(chatId, `🪔 Локация сохранена: ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}.\n🕉️ Таймзона: ${timezoneName}.${detectedHint}`, {
+    await this.telegramApi.sendMessage(chatId, `${text}\n\n🙏 Подключение завершено. Выбери действие кнопками ниже.`, {
       replyMarkup: controlKeyboard(includeJoinButton)
     });
-
-    return true;
   }
 
   async handleToday(chatId: number, userId: number, forceRefresh: boolean): Promise<void> {
@@ -320,12 +325,14 @@ export class VedicHandlers {
     target: 'today' | 'tomorrow'
   ): Promise<void> {
     const location = await this.storage.getUserLocation(userId);
-    if (!location || location.lat == null || location.lon == null) {
-      await this.requestLocation(chatId, userId, 'setlocation');
+    if (!location) {
+      await this.requestCity(chatId, userId, 'setcity');
       return;
     }
 
-    const timezoneName = location.timezone || env.defaultTimezone;
+    const timezoneName = location.timezone || FALLBACK_TIMEZONE;
+    const lat = location.lat ?? FALLBACK_LAT;
+    const lon = location.lon ?? FALLBACK_LON;
     const baseLocal = getNowInTimezone(timezoneName);
     const targetLocal = dayOffset === 0 ? baseLocal : baseLocal.add(dayOffset, 'day');
     const dateLocal = targetLocal.format('YYYY-MM-DD');
@@ -335,8 +342,8 @@ export class VedicHandlers {
       panchangJson = await this.panchangService.computePanchang({
         date: targetLocal.toDate(),
         timezone: timezoneName,
-        lat: location.lat,
-        lon: location.lon
+        lat,
+        lon
       });
     } catch {
       await this.telegramApi.sendMessage(chatId, '⚠️ Не удалось вычислить панчангу. Попробуй снова через /refresh.');
@@ -355,8 +362,8 @@ export class VedicHandlers {
     const cacheKey = this.storage.buildCacheKey({
       userId,
       dateLocal,
-      lat: location.lat,
-      lon: location.lon,
+      lat,
+      lon,
       timezone: timezoneName
     });
 
@@ -409,25 +416,49 @@ export class VedicHandlers {
     return String(error);
   }
 
-  private async detectTimezoneByCoordinates(lat: number, lon: number): Promise<string | null> {
+  private async resolveCity(city: string): Promise<{
+    name: string;
+    country: string | null;
+    timezone: string | null;
+    lat: number | null;
+    lon: number | null;
+  } | null> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 6000);
 
     try {
-      const response = await fetch(
-        `https://timeapi.io/api/TimeZone/coordinate?latitude=${lat}&longitude=${lon}`,
-        { signal: controller.signal }
-      );
+      const url = new URL('https://geocoding-api.open-meteo.com/v1/search');
+      url.searchParams.set('name', city);
+      url.searchParams.set('count', '1');
+      url.searchParams.set('language', 'ru');
+      url.searchParams.set('format', 'json');
+
+      const response = await fetch(url.toString(), { signal: controller.signal });
       if (!response.ok) {
         return null;
       }
 
-      const payload = (await response.json()) as { timeZone?: unknown };
-      if (typeof payload.timeZone === 'string' && payload.timeZone.trim()) {
-        return payload.timeZone.trim();
+      const payload = (await response.json()) as {
+        results?: Array<{
+          name?: unknown;
+          country?: unknown;
+          timezone?: unknown;
+          latitude?: unknown;
+          longitude?: unknown;
+        }>;
+      };
+      const first = payload.results?.[0];
+      if (!first) {
+        return null;
       }
 
-      return null;
+      return {
+        name: typeof first.name === 'string' && first.name.trim() ? first.name.trim() : city,
+        country: typeof first.country === 'string' && first.country.trim() ? first.country.trim() : null,
+        timezone: typeof first.timezone === 'string' && first.timezone.trim() ? first.timezone.trim() : null,
+        lat: typeof first.latitude === 'number' && Number.isFinite(first.latitude) ? first.latitude : null,
+        lon: typeof first.longitude === 'number' && Number.isFinite(first.longitude) ? first.longitude : null
+      };
     } catch {
       return null;
     } finally {
@@ -435,17 +466,17 @@ export class VedicHandlers {
     }
   }
 
-  async requestLocation(
+  async requestCity(
     chatId: number,
     userId: number,
-    source: 'start' | 'join_button' | 'setlocation'
+    source: 'start' | 'join_button' | 'setcity'
   ): Promise<void> {
-    await this.userStateRepo.upsertState(userId, 'WAITING_LOCATION', { source });
+    await this.userStateRepo.upsertState(userId, 'WAITING_CITY', { source });
     const text =
-      source === 'setlocation'
-        ? '📍 Отправь геолокацию, чтобы я сделал точный расчет.'
-        : '🕉️ Намасте. Отправь геолокацию, чтобы я определил твою таймзону и подготовил точную сводку дня.';
-    await this.telegramApi.sendMessage(chatId, text, { replyMarkup: locationKeyboard() });
+      source === 'setcity'
+        ? '🏙️ Введи город, чтобы я определил таймзону. Например: Москва.'
+        : '🕉️ Намасте. Введи свой город, и я определю таймзону для точной сводки дня. Например: Москва.';
+    await this.telegramApi.sendMessage(chatId, text, { replyMarkup: removeKeyboard() });
   }
 
   private async startSubscriptionTimeOnboarding(chatId: number, userId: number, timezoneName: string): Promise<void> {

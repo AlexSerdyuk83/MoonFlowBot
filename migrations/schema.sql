@@ -12,6 +12,7 @@ create table if not exists users (
   id uuid primary key default gen_random_uuid(),
   telegram_user_id bigint not null unique,
   telegram_chat_id bigint not null,
+  city_name text,
   timezone text not null default 'Europe/Amsterdam',
   lat double precision,
   lon double precision,
@@ -24,6 +25,7 @@ create table if not exists users (
   constraint users_evening_time_format check (evening_time is null or evening_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$')
 );
 
+drop trigger if exists users_set_updated_at on users;
 create trigger users_set_updated_at
 before update on users
 for each row execute function set_updated_at();
@@ -40,11 +42,12 @@ create table if not exists user_states (
       'WAITING_EVENING_TIME',
       'WAITING_UPDATE_MORNING_TIME',
       'WAITING_UPDATE_EVENING_TIME',
-      'WAITING_LOCATION'
+      'WAITING_CITY'
     )
   )
 );
 
+drop trigger if exists user_states_set_updated_at on user_states;
 create trigger user_states_set_updated_at
 before update on user_states
 for each row execute function set_updated_at();
@@ -67,8 +70,10 @@ create index if not exists idx_delivery_logs_target_date on delivery_logs(target
 
 alter table users add column if not exists lat double precision;
 alter table users add column if not exists lon double precision;
+alter table users add column if not exists city_name text;
 
 alter table user_states drop constraint if exists user_states_step_allowed;
+update user_states set step = 'WAITING_CITY' where step = 'WAITING_LOCATION';
 alter table user_states
   add constraint user_states_step_allowed
   check (
@@ -78,7 +83,7 @@ alter table user_states
       'WAITING_EVENING_TIME',
       'WAITING_UPDATE_MORNING_TIME',
       'WAITING_UPDATE_EVENING_TIME',
-      'WAITING_LOCATION'
+      'WAITING_CITY'
     )
   );
 

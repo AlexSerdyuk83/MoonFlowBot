@@ -92,6 +92,7 @@ export class UserRepo {
     lat: number;
     lon: number;
     timezone: string;
+    cityName: string;
   }): Promise<void> {
     const existing = await this.findByTelegramUserId(params.telegramUserId);
     if (existing) {
@@ -99,6 +100,7 @@ export class UserRepo {
         .from('users')
         .update({
           telegram_chat_id: params.telegramChatId,
+          city_name: params.cityName,
           lat: params.lat,
           lon: params.lon,
           timezone: params.timezone
@@ -113,6 +115,7 @@ export class UserRepo {
     const { error } = await supabase.from('users').insert({
       telegram_user_id: params.telegramUserId,
       telegram_chat_id: params.telegramChatId,
+      city_name: params.cityName,
       lat: params.lat,
       lon: params.lon,
       timezone: params.timezone,
@@ -127,6 +130,7 @@ export class UserRepo {
     telegramUserId: number;
     telegramChatId: number;
     timezone: string;
+    cityName?: string;
   }): Promise<void> {
     const existing = await this.findByTelegramUserId(params.telegramUserId);
     if (existing) {
@@ -134,7 +138,8 @@ export class UserRepo {
         .from('users')
         .update({
           telegram_chat_id: params.telegramChatId,
-          timezone: params.timezone
+          timezone: params.timezone,
+          city_name: params.cityName ?? existing.city_name
         })
         .eq('id', existing.id);
       if (error) {
@@ -146,6 +151,7 @@ export class UserRepo {
     const { error } = await supabase.from('users').insert({
       telegram_user_id: params.telegramUserId,
       telegram_chat_id: params.telegramChatId,
+      city_name: params.cityName ?? null,
       timezone: params.timezone,
       is_active: true
     });

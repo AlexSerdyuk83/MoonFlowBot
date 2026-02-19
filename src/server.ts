@@ -5,10 +5,6 @@ import { DeliveryLogRepo } from './repos/DeliveryLogRepo';
 import { UserRepo } from './repos/UserRepo';
 import { UserStateRepo } from './repos/UserStateRepo';
 import { SchedulerService } from './scheduler/SchedulerService';
-import { ContentComposer } from './services/ContentComposer';
-import { DailyMessageService } from './services/DailyMessageService';
-import { MoonPhaseService } from './services/MoonPhaseService';
-import { PanchangService } from './services/PanchangService';
 import { TelegramApi } from './services/TelegramApi';
 import type { TelegramUpdate } from './types/telegram';
 import { logger } from './utils/logger';
@@ -25,11 +21,6 @@ const userRepo = new UserRepo();
 const userStateRepo = new UserStateRepo();
 const deliveryLogRepo = new DeliveryLogRepo();
 const telegramApi = new TelegramApi(env.telegramBotToken);
-
-const moonPhaseService = new MoonPhaseService();
-const panchangService = new PanchangService();
-const contentComposer = new ContentComposer();
-const dailyMessageService = new DailyMessageService(moonPhaseService, panchangService, contentComposer);
 const vedicStorage = new VedicStorage(userRepo);
 const vedicPanchangService = new VedicPanchangService();
 const vedicThesesService = new VedicThesesService();
@@ -47,7 +38,6 @@ const telegramController = new TelegramWebhookController(
   telegramApi,
   userRepo,
   userStateRepo,
-  dailyMessageService,
   vedicHandlers
 );
 

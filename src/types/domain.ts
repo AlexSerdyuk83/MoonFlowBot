@@ -4,16 +4,17 @@ export type DeliveryStatus = 'SENT' | 'FAILED' | 'SKIPPED';
 
 export type OnboardingStep =
   | 'IDLE'
+  | 'WAITING_CITY'
   | 'WAITING_MORNING_TIME'
   | 'WAITING_EVENING_TIME'
   | 'WAITING_UPDATE_MORNING_TIME'
-  | 'WAITING_UPDATE_EVENING_TIME'
-  | 'WAITING_LOCATION';
+  | 'WAITING_UPDATE_EVENING_TIME';
 
 export interface UserRecord {
   id: string;
   telegram_user_id: string;
   telegram_chat_id: string;
+  city_name: string | null;
   timezone: string;
   lat: number | null;
   lon: number | null;
