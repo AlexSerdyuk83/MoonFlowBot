@@ -31,9 +31,15 @@ function locationKeyboard() {
   return keyboard;
 }
 
-function controlKeyboard(): ReplyKeyboardMarkup {
+function controlKeyboard(includeJoinButton: boolean): ReplyKeyboardMarkup {
+  const rows: ReplyKeyboardMarkup['keyboard'] = [];
+  if (includeJoinButton) {
+    rows.push([{ text: BOT_BUTTON_JOIN }]);
+  }
+  rows.push([{ text: BOT_BUTTON_TODAY }]);
+  rows.push([{ text: BOT_BUTTON_TOMORROW }]);
   return {
-    keyboard: [[{ text: BOT_BUTTON_JOIN }], [{ text: BOT_BUTTON_TODAY }], [{ text: BOT_BUTTON_TOMORROW }]],
+    keyboard: rows,
     resize_keyboard: true
   };
 }
@@ -274,6 +280,7 @@ export class VedicHandlers {
 
     await this.userStateRepo.clearState(userId);
     const source = typeof state?.payload?.source === 'string' ? state.payload.source : '';
+    const includeJoinButton = !Boolean(existing?.isSubscribed);
     const detectedHint = detectedTimezone
       ? ''
       : `\n⚠️ Не удалось точно определить таймзону по координатам, использую: ${timezoneName}. Можно изменить: /settimezone Europe/Moscow`;
@@ -282,7 +289,7 @@ export class VedicHandlers {
       await this.telegramApi.sendMessage(
         chatId,
         `🪔 Локация сохранена: ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}.\n🕉️ Таймзона: ${timezoneName}.${detectedHint}\n\n🙏 Подключение завершено. Выбери действие кнопками ниже.`,
-        { replyMarkup: controlKeyboard() }
+        { replyMarkup: controlKeyboard(includeJoinButton) }
       );
       if (source === 'join_button') {
         await this.startSubscriptionTimeOnboarding(chatId, userId, timezoneName);
@@ -291,7 +298,7 @@ export class VedicHandlers {
     }
 
     await this.telegramApi.sendMessage(chatId, `🪔 Локация сохранена: ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}.\n🕉️ Таймзона: ${timezoneName}.${detectedHint}`, {
-      replyMarkup: controlKeyboard()
+      replyMarkup: controlKeyboard(includeJoinButton)
     });
 
     return true;

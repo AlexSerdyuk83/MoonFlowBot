@@ -15,6 +15,7 @@ export interface VedicUserLocation {
   timezone: string;
   lat: number | null;
   lon: number | null;
+  isSubscribed: boolean;
 }
 
 export class VedicStorage {
@@ -31,7 +32,8 @@ export class VedicStorage {
       chatId: Number(user.telegram_chat_id),
       timezone: user.timezone || env.defaultTimezone,
       lat: user.lat,
-      lon: user.lon
+      lon: user.lon,
+      isSubscribed: Boolean(user.morning_time && user.evening_time)
     };
   }
 
