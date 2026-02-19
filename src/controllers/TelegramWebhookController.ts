@@ -175,7 +175,12 @@ export class TelegramWebhookController {
     }
 
     if (data === CALLBACK.JOIN) {
-      await this.vedicHandlers.requestCity(chatId, userId, 'join_button');
+      await this.userStateRepo.upsertState(userId, 'WAITING_CITY', { source: 'join_button' });
+      await this.telegramApi.sendMessage(
+        chatId,
+        '🕉️ Намасте. Введи свой город, и я определю таймзону для точной сводки дня. Например: Москва.',
+        { replyMarkup: { remove_keyboard: true } }
+      );
       await this.telegramApi.answerCallbackQuery(callback.id);
       return;
     }
@@ -236,7 +241,16 @@ export class TelegramWebhookController {
     }
 
     if (step === 'WAITING_CITY') {
-      await this.vedicHandlers.handleCityInput(chatId, userId, text, payload);
+      const cityInputHandler = this.vedicHandlers as unknown as {
+        handleCityInput?: (chatId: number, userId: number, cityInput: string, payload: Record<string, unknown>) => Promise<void>;
+      };
+
+      if (cityInputHandler.handleCityInput) {
+        await cityInputHandler.handleCityInput(chatId, userId, text, payload);
+      } else {
+        await this.userStateRepo.clearState(userId);
+        await this.telegramApi.sendMessage(chatId, '⚠️ Обнови бота до последней версии и попробуй снова: /setcity');
+      }
       return;
     }
 
@@ -282,6 +296,12 @@ export class TelegramWebhookController {
         chatId,
         `🙏 Готово. Настройки сохранены:\n🌅 Утро: ${morning}\n🌙 Вечер: ${text}\n🕉️ Таймзона: ${timezoneName}`
       );
+      await this.telegramApi.sendMessage(chatId, '✨ Основные действия:', {
+        replyMarkup: {
+          keyboard: [[{ text: '🌞 Сегодня' }], [{ text: '🌙 Завтра' }]],
+          resize_keyboard: true
+        }
+      });
       await this.vedicHandlers.handleToday(chatId, userId, false);
       return;
     }
