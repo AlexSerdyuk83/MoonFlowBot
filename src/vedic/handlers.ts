@@ -298,14 +298,14 @@ export class VedicHandlers {
 
     if (source === 'join_button') {
       await this.telegramApi.sendMessage(chatId, `${text}\n\n🙏 Подключение завершено. Теперь настроим время рассылок.`, {
-        replyMarkup: includeJoinButton ? controlKeyboard(true) : removeKeyboard()
+        replyMarkup: controlKeyboard(includeJoinButton)
       });
       await this.startSubscriptionTimeOnboarding(chatId, userId, timezoneName);
       return;
     }
 
     await this.telegramApi.sendMessage(chatId, `${text}\n\n🙏 Подключение завершено. Выбери действие кнопками ниже.`, {
-      replyMarkup: includeJoinButton ? controlKeyboard(true) : removeKeyboard()
+      replyMarkup: controlKeyboard(includeJoinButton)
     });
   }
 

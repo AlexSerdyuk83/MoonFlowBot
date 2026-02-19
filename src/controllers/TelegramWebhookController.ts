@@ -295,7 +295,12 @@ export class TelegramWebhookController {
       await this.telegramApi.sendMessage(
         chatId,
         `🙏 Готово. Настройки сохранены:\n🌅 Утро: ${morning}\n🌙 Вечер: ${text}\n🕉️ Таймзона: ${timezoneName}`,
-        { replyMarkup: { remove_keyboard: true } }
+        {
+          replyMarkup: {
+            keyboard: [[{ text: '🌞 Сегодня' }], [{ text: '🌙 Завтра' }]],
+            resize_keyboard: true
+          }
+        }
       );
       await this.vedicHandlers.handleToday(chatId, userId, false);
       return;
